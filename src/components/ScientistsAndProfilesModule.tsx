@@ -6,7 +6,7 @@ import {
 } from '../types/kmfri.ts';
 import {
   generateUuid,
-  hashPasswordSync,
+  hashPasswordAsync,
   getRoleById,
   getDirectorateById,
   appendAuditLog,
@@ -145,7 +145,7 @@ export const ScientistsAndProfilesModule: React.FC<ScientistsAndProfilesModulePr
     return true;
   });
 
-  const handleProvisionAccount = (e: React.FormEvent) => {
+  const handleProvisionAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     setFeedbackMsg(null);
 
@@ -183,7 +183,7 @@ export const ScientistsAndProfilesModule: React.FC<ScientistsAndProfilesModulePr
       full_name: newName.trim(),
       email: emailClean,
       phone: '',
-      password_hash: hashPasswordSync(newPassword),
+      password_hash: await hashPasswordAsync(newPassword),
       staff_number: staffClean,
       profile_photo: '',
       position: newPosition.trim() || selectedRoleToCreate?.label || 'Research Staff',
@@ -399,13 +399,14 @@ export const ScientistsAndProfilesModule: React.FC<ScientistsAndProfilesModulePr
       }
 
       const now = new Date().toISOString();
+      const newHash = await hashPasswordAsync(changePwdValue);
       let nextState: DatabaseState = {
         ...db,
         users: db.users.map((u) =>
           u.id === targetUser.id
             ? {
                 ...u,
-                password_hash: hashPasswordSync(changePwdValue),
+                password_hash: newHash,
                 failed_login_attempts: 0,
                 account_status: 'Active',
                 updated_at: now,

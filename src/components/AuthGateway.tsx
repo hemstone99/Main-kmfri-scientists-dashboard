@@ -419,10 +419,14 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
       }
 
       const now = new Date().toISOString();
-      // Automatically upgrade legacy hash to bcrypt on verified login
-      const upgradedHash = user.password_hash.startsWith('$2b$')
-        ? user.password_hash
-        : await hashPasswordAsync(password);
+      // Automatically upgrade the legacy peppered custom hash to bcrypt on a
+      // verified login. bcryptjs emits $2a$/$2b$ hashes; only re-hash when the
+      // stored value is not already a bcrypt hash (avoids re-hashing on every login).
+      const upgradedHash =
+        user.password_hash.startsWith('$2y$14$KMFRIZeroTrust2026$') ||
+        user.password_hash.startsWith('$2y$12$KMFRISalt2026Institutional.')
+          ? await hashPasswordAsync(password)
+          : user.password_hash;
 
       const updatedUser: UserModel = {
         ...user,

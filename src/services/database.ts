@@ -55,7 +55,18 @@ export async function hashPasswordAsync(plain: string): Promise<string> {
 
 export async function verifyPasswordAsync(plain: string, hash: string): Promise<boolean> {
   if (!plain || !hash) return false;
-  return bcrypt.compare(plain, hash);
+  // The legacy peppered custom hash is NOT a valid bcrypt hash, but it
+  // happens to start with $2y$ — so it must be checked BEFORE the generic
+  // bcrypt prefix below, otherwise bcrypt.compare silently returns false.
+  if (hash.startsWith('$2y$14$KMFRIZeroTrust2026$')) {
+    return verifyPasswordSync(plain, hash);
+  }
+  // Real bcrypt hashes are self-describing ($2y$/$2a$/$2b$ + cost + salt).
+  if (hash.startsWith('$2y$') || hash.startsWith('$2a$') || hash.startsWith('$2b$')) {
+    return bcrypt.compare(plain, hash);
+  }
+  // Backward compatibility with the older v1 FNV-1a custom hash.
+  return verifyPasswordSync(plain, hash);
 }
 
 // Legacy sync functions for backward compatibility (will be phased out)

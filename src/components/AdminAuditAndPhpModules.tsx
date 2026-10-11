@@ -6,7 +6,7 @@ import {
 } from '../types/kmfri.ts';
 import {
   generateUuid,
-  hashPasswordSync,
+  hashPasswordAsync,
   appendAuditLog,
   createInitialCleanDatabase,
   getRoleById,
@@ -385,13 +385,14 @@ export const AdminAuditAndPhpModules: React.FC<AdminAuditAndPhpModulesProps> = (
     }
 
     const now = new Date().toISOString();
+    const newHash = await hashPasswordAsync(newAdminUserPwd);
     let nextState: DatabaseState = {
       ...db,
       users: db.users.map((u) =>
         u.id === pwdModalUser.id
           ? {
               ...u,
-              password_hash: hashPasswordSync(newAdminUserPwd),
+              password_hash: newHash,
               failed_login_attempts: 0,
               account_status: 'Active',
               updated_at: now,
@@ -477,7 +478,7 @@ export const AdminAuditAndPhpModules: React.FC<AdminAuditAndPhpModulesProps> = (
     setCsvPreviewRows(parsed);
   };
 
-  const handleCommitCsvImport = () => {
+  const handleCommitCsvImport = async () => {
     const validRows = csvPreviewRows.filter(
       (r) => !r.duplicate && r.full_name && r.email
     );
@@ -491,6 +492,7 @@ export const AdminAuditAndPhpModules: React.FC<AdminAuditAndPhpModulesProps> = (
 
     const now = new Date().toISOString();
     const sciRole = db.roles.find((r) => r.name === 'scientist') || db.roles[0];
+    const defaultHash = await hashPasswordAsync('Kmfri@2026!');
 
     const importedUsers: User[] = validRows.map((r) => {
       const dir =
@@ -501,7 +503,7 @@ export const AdminAuditAndPhpModules: React.FC<AdminAuditAndPhpModulesProps> = (
         full_name: r.full_name,
         email: r.email.toLowerCase(),
         phone: '',
-        password_hash: hashPasswordSync('Kmfri@2026!'),
+        password_hash: defaultHash,
         staff_number: r.staff_number.toUpperCase(),
         profile_photo: '',
         position: r.position,
