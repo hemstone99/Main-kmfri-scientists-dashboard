@@ -11,7 +11,7 @@ import {
   getDirectorateById,
   appendAuditLog,
 } from '../services/database.ts';
-import { getUserRoleName } from '../services/rbacPolicy.ts';
+import { canViewResearcherProfile, getUserRoleName } from '../services/rbacPolicy.ts';
 import {
   UserPlus,
   Search,
@@ -25,6 +25,9 @@ import {
   EyeOff,
   Trash2,
   KeyRound,
+  GraduationCap,
+  MapPin,
+  Fingerprint,
 } from 'lucide-react';
 
 interface ScientistsAndProfilesModuleProps {
@@ -102,6 +105,9 @@ export const ScientistsAndProfilesModule: React.FC<ScientistsAndProfilesModulePr
   const [editOffice, setEditOffice] = useState(activeProfile?.office_location || '');
   const [editInterests, setEditInterests] = useState(activeProfile?.research_interests || '');
   const [editBio, setEditBio] = useState(activeProfile?.biography || '');
+  const [editExpertise, setEditExpertise] = useState(activeProfile?.areas_of_expertise || '');
+  const [editProfilePhone, setEditProfilePhone] = useState(activeProfile?.phone || currentUser.phone);
+  const [editYearsExperience, setEditYearsExperience] = useState(activeProfile?.years_experience || 0);
 
   // SMTP 2FA Password Change state
   const [twoFaSending, setTwoFaSending] = useState(false);
@@ -120,10 +126,15 @@ export const ScientistsAndProfilesModule: React.FC<ScientistsAndProfilesModulePr
       setEditOffice(prof.office_location);
       setEditInterests(prof.research_interests);
       setEditBio(prof.biography);
+      setEditExpertise(prof.areas_of_expertise);
+      setEditProfilePhone(prof.phone || currentUser.phone);
+      setEditYearsExperience(prof.years_experience || 0);
     }
-  }, [selectedUserId, db.researcher_profiles]);
+  }, [selectedUserId, db.researcher_profiles, currentUser.phone]);
 
   const visibleScientists = db.users.filter((u) => {
+    if (!canViewResearcherProfile(db, currentUser, u)) return false;
+    if (roleName === 'scientist') return mode === 'profiles' && u.id === currentUser.id;
     if (roleName === 'head_of_directorate' || roleName === 'directorate_admin') {
       if (u.directorate_id !== currentUser.directorate_id) return false;
     }
@@ -291,25 +302,32 @@ export const ScientistsAndProfilesModule: React.FC<ScientistsAndProfilesModulePr
     }
 
     const existing = db.researcher_profiles.find((p) => p.user_id === selectedUserId);
-    if (!existing) return;
+    const now = new Date().toISOString();
 
     const updated: ResearcherProfile = {
-      ...existing,
+      ...(existing || {
+        id: generateUuid(),
+        user_id: selectedUserId,
+        created_at: now,
+      }),
       specialization: editSpec.trim(),
       academic_rank: editRank.trim(),
       qualifications: editQual.trim(),
       orcid: editOrcid.trim(),
+      phone: editProfilePhone.trim(),
       office_location: editOffice.trim(),
       research_interests: editInterests.trim(),
+      areas_of_expertise: editExpertise.trim(),
+      years_experience: Math.max(0, Number(editYearsExperience) || 0),
       biography: editBio.trim(),
-      updated_at: new Date().toISOString(),
+      updated_at: now,
     };
 
     let nextState: DatabaseState = {
       ...db,
-      researcher_profiles: db.researcher_profiles.map((p) =>
-        p.id === existing.id ? updated : p
-      ),
+      researcher_profiles: existing
+        ? db.researcher_profiles.map((p) => (p.id === existing.id ? updated : p))
+        : [...db.researcher_profiles, updated],
     };
 
     nextState = appendAuditLog(
@@ -317,8 +335,8 @@ export const ScientistsAndProfilesModule: React.FC<ScientistsAndProfilesModulePr
       currentUser,
       'RESEARCHER_PROFILE_UPDATED',
       'researcher_profiles',
-      existing.id,
-      { specialization: existing.specialization, orcid: existing.orcid },
+      updated.id,
+      { specialization: existing?.specialization || '', orcid: existing?.orcid || '' },
       { specialization: updated.specialization, orcid: updated.orcid }
     );
 
@@ -483,7 +501,9 @@ export const ScientistsAndProfilesModule: React.FC<ScientistsAndProfilesModulePr
   const inspectedDir = getDirectorateById(db, inspectedUser.directorate_id);
   const inspectedRole = getRoleById(db, inspectedUser.role_id);
   const userProjects = db.projects.filter(
-    (p) => p.principal_investigator_id === inspectedUser.id
+    (p) =>
+      p.principal_investigator_id === inspectedUser.id ||
+      db.project_members.some((member) => member.project_id === p.id && member.user_id === inspectedUser.id)
   );
   const userOutputs = db.research_outputs.filter(
     (o) => o.lead_scientist_id === inspectedUser.id
@@ -617,14 +637,16 @@ export const ScientistsAndProfilesModule: React.FC<ScientistsAndProfilesModulePr
           <h1 className="text-lg font-bold text-slate-900 dark:text-white font-display">
             {mode === 'scientists'
               ? `KMFRI Institutional Accounts & Scientists Directory (${visibleScientists.length})`
-              : 'Comprehensive Researcher Academic & ORCID Profile'}
+              : roleName === 'scientist'
+                ? 'My Researcher Profile'
+                : 'Comprehensive Researcher Academic & ORCID Profile'}
           </h1>
           <p className="text-xs text-slate-500">
             Enforces unique staff numbers, institutional emails, and role-scoped directorate assignments.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
+        {!(roleName === 'scientist' && mode === 'profiles') && <div className="flex flex-wrap items-center gap-2.5">
           <div className="relative">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
             <input
@@ -660,7 +682,7 @@ export const ScientistsAndProfilesModule: React.FC<ScientistsAndProfilesModulePr
               <span>Create Institutional Account</span>
             </button>
           )}
-        </div>
+        </div>}
       </div>
 
       {feedbackMsg && (
@@ -682,7 +704,7 @@ export const ScientistsAndProfilesModule: React.FC<ScientistsAndProfilesModulePr
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Scientists Directory Table */}
-        <div className="lg:col-span-7 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+        {!(roleName === 'scientist' && mode === 'profiles') && <div className="lg:col-span-7 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
           <div className="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
             <h2 className="text-xs font-bold text-slate-900 dark:text-white">
               Registered Institutional Users & Scientists
@@ -769,10 +791,10 @@ export const ScientistsAndProfilesModule: React.FC<ScientistsAndProfilesModulePr
               </tbody>
             </table>
           </div>
-        </div>
+        </div>}
 
         {/* Comprehensive Researcher Profile Inspector & Editor */}
-        <div className="lg:col-span-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-5">
+        <div className={`${roleName === 'scientist' && mode === 'profiles' ? 'lg:col-span-12' : 'lg:col-span-5'} bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-5`}>
           <div className="border-b border-slate-200 dark:border-slate-800 pb-4">
             <div className="flex items-center justify-between mb-1">
               <span className="font-mono text-xs font-bold text-teal-700 dark:text-teal-400">
@@ -807,6 +829,13 @@ export const ScientistsAndProfilesModule: React.FC<ScientistsAndProfilesModulePr
               <span className="text-slate-500 block">Lead Publications</span>
               <span className="text-base font-bold font-mono">{userOutputs.length}</span>
             </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs border-b border-slate-200 dark:border-slate-800 pb-4">
+            <div><span className="text-slate-500 block">Contact phone</span><span className="font-medium">{activeProfile?.phone || inspectedUser.phone || 'Not provided'}</span></div>
+            <div><span className="text-slate-500 block">Years of experience</span><span className="font-medium">{activeProfile?.years_experience || 0}</span></div>
+            <div className="sm:col-span-2"><span className="text-slate-500 block">Research interests</span><span className="font-medium">{activeProfile?.research_interests || 'Not provided'}</span></div>
+            <div className="sm:col-span-2"><span className="text-slate-500 block">Areas of expertise</span><span className="font-medium">{activeProfile?.areas_of_expertise || 'Not provided'}</span></div>
           </div>
 
           <form onSubmit={handleUpdateProfile} className="space-y-3 text-xs">
@@ -858,6 +887,21 @@ export const ScientistsAndProfilesModule: React.FC<ScientistsAndProfilesModulePr
                 onChange={(e) => setEditQual(e.target.value)}
                 className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
               />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Areas of Expertise</label>
+                <input type="text" value={editExpertise} onChange={(e) => setEditExpertise(e.target.value)} className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800" />
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Years of Experience</label>
+                <input type="number" min="0" value={editYearsExperience} onChange={(e) => setEditYearsExperience(Number(e.target.value))} className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800" />
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Contact Phone</label>
+                <input type="text" value={editProfilePhone} onChange={(e) => setEditProfilePhone(e.target.value)} className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800" />
+              </div>
             </div>
 
             <div>

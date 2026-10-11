@@ -13,7 +13,7 @@ import {
   getUserById,
   appendAuditLog,
 } from '../services/database.ts';
-import { filterProjectsForUser } from '../services/rbacPolicy.ts';
+import { filterProjectsForUser, getUserRoleName } from '../services/rbacPolicy.ts';
 import {
   Plus,
   Activity,
@@ -36,13 +36,26 @@ export const OperationsAndFundingModules: React.FC<OperationsAndFundingModulesPr
   mode,
   onUpdateDb,
 }) => {
+  const roleName = getUserRoleName(db, currentUser);
   const authorizedProjects = filterProjectsForUser(db, currentUser);
+  const activityProjects = roleName === 'scientist'
+    ? authorizedProjects.filter((project) =>
+        project.principal_investigator_id === currentUser.id ||
+        project.created_by === currentUser.id ||
+        db.project_members.some((member) => member.project_id === project.id && member.user_id === currentUser.id)
+      )
+    : authorizedProjects;
+  const visibleActivities = db.research_activities.filter((activity) =>
+    roleName === 'scientist'
+      ? activity.scientist_id === currentUser.id
+      : authorizedProjects.some((project) => project.id === activity.project_id)
+  );
   const [alertMsg, setAlertMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
   // Activity form state (clean empty inputs — zero dummy data)
   const [actTitle, setActTitle] = useState('');
   const [actCategory, setActCategory] = useState<ResearchActivity['activity_category']>('Fieldwork');
-  const [actProjectId, setActProjectId] = useState(authorizedProjects[0]?.id || '');
+  const [actProjectId, setActProjectId] = useState(activityProjects[0]?.id || '');
   const [actDate, setActDate] = useState('');
   const [actHours, setActHours] = useState('');
   const [actStatus, setActStatus] = useState<ResearchActivity['status']>('Completed');
@@ -67,7 +80,7 @@ export const OperationsAndFundingModules: React.FC<OperationsAndFundingModulesPr
   const handleCreateActivity = (e: React.FormEvent) => {
     e.preventDefault();
     setAlertMsg(null);
-    const proj = db.projects.find((p) => p.id === actProjectId) || authorizedProjects[0];
+    const proj = activityProjects.find((p) => p.id === actProjectId);
     if (!proj) {
       setAlertMsg({
         type: 'err',
@@ -287,7 +300,7 @@ export const OperationsAndFundingModules: React.FC<OperationsAndFundingModulesPr
       <div className="space-y-6">
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5">
           <h1 className="text-lg font-bold text-slate-900 dark:text-white font-display">
-            Research Activities, Fieldwork & Cruises Log ({db.research_activities.length})
+            Research Activities, Fieldwork & Cruises Log ({visibleActivities.length})
           </h1>
           <p className="text-xs text-slate-500">
             Record hydrographic surveys, laboratory analyses, sample collection, and stakeholder workshops.
@@ -324,10 +337,10 @@ export const OperationsAndFundingModules: React.FC<OperationsAndFundingModulesPr
                   onChange={(e) => setActProjectId(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white dark:bg-slate-800"
                 >
-                  {authorizedProjects.length === 0 ? (
+                  {activityProjects.length === 0 ? (
                     <option value="">-- Create a Project First --</option>
                   ) : (
-                    authorizedProjects.map((p) => (
+                    activityProjects.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.project_code} — {p.title}
                       </option>
@@ -419,10 +432,10 @@ export const OperationsAndFundingModules: React.FC<OperationsAndFundingModulesPr
           <div className="lg:col-span-7 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
             <div className="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800">
               <h2 className="text-xs font-bold text-slate-900 dark:text-white">
-                Recorded Scientific Activities Timeline ({db.research_activities.length})
+                Recorded Scientific Activities Timeline ({visibleActivities.length})
               </h2>
             </div>
-            {db.research_activities.length === 0 ? (
+            {visibleActivities.length === 0 ? (
               <div className="p-10 text-center text-xs text-slate-500">
                 Zero research activities recorded yet. Use the form on the left to log fieldwork or lab
                 sessions.
@@ -440,7 +453,7 @@ export const OperationsAndFundingModules: React.FC<OperationsAndFundingModulesPr
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
-                    {db.research_activities.map((a) => {
+                    {visibleActivities.map((a) => {
                       const sci = getUserById(db, a.scientist_id);
                       return (
                         <tr key={a.id}>

@@ -5,6 +5,7 @@ import {
   Project,
   ResearchOutput,
   ResearchReport,
+  DocumentRecord,
 } from '../types/kmfri.ts';
 import { getRoleById } from './database.ts';
 
@@ -36,33 +37,50 @@ export function getUserRoleName(state: DatabaseState, user: User): RoleName {
  */
 export function canAccessNavSection(state: DatabaseState, user: User, section: NavSectionId): boolean {
   const role = getUserRoleName(state, user);
+  const accessByRole: Record<RoleName, NavSectionId[]> = {
+    scientist: [
+      'dashboard', 'profiles', 'projects', 'activities', 'reports', 'outputs',
+      'sharepoint_hub', 'notifications',
+    ],
+    head_of_directorate: [
+      'dashboard', 'scientists', 'profiles', 'projects', 'activities', 'funding',
+      'reports', 'outputs', 'sharepoint_hub', 'locations', 'collaborators',
+      'approvals', 'documents', 'notifications', 'analytics',
+    ],
+    directorate_admin: [
+      'dashboard', 'scientists', 'profiles', 'projects', 'activities', 'funding',
+      'reports', 'outputs', 'sharepoint_hub', 'locations', 'collaborators',
+      'documents', 'notifications', 'analytics', 'administration',
+    ],
+    director_general: [
+      'dashboard', 'scientists', 'profiles', 'projects', 'activities', 'funding',
+      'reports', 'outputs', 'sharepoint_hub', 'locations', 'collaborators',
+      'approvals', 'documents', 'notifications', 'analytics', 'audit_logs',
+    ],
+    system_admin: [
+      'dashboard', 'scientists', 'profiles', 'projects', 'activities', 'funding',
+      'reports', 'outputs', 'sharepoint_hub', 'locations', 'collaborators',
+      'approvals', 'documents', 'notifications', 'analytics', 'administration',
+      'audit_logs',
+    ],
+  };
 
-  switch (section) {
-    case 'dashboard':
-    case 'profiles':
-    case 'projects':
-    case 'activities':
-    case 'funding':
-    case 'reports':
-    case 'outputs':
-    case 'sharepoint_hub':
-    case 'locations':
-    case 'collaborators':
-    case 'documents':
-    case 'notifications':
-    case 'analytics':
-      return true;
-    case 'scientists':
-      return ['head_of_directorate', 'directorate_admin', 'director_general', 'system_admin', 'scientist'].includes(role);
-    case 'approvals':
-      return ['scientist', 'head_of_directorate', 'director_general', 'directorate_admin', 'system_admin'].includes(role);
-    case 'administration':
-      return ['system_admin', 'directorate_admin'].includes(role);
-    case 'audit_logs':
-      return ['system_admin', 'director_general'].includes(role);
-    default:
-      return false;
+  return accessByRole[role].includes(section);
+}
+
+export function canViewResearcherProfile(
+  state: DatabaseState,
+  viewer: User,
+  subject: User
+): boolean {
+  if (viewer.id === subject.id) return true;
+
+  const role = getUserRoleName(state, viewer);
+  if (role === 'system_admin' || role === 'director_general') return true;
+  if (role === 'head_of_directorate' || role === 'directorate_admin') {
+    return Boolean(viewer.directorate_id) && viewer.directorate_id === subject.directorate_id;
   }
+  return false;
 }
 
 /**
@@ -96,10 +114,46 @@ export function canEditProject(state: DatabaseState, user: User, project: Projec
 }
 
 /**
- * Enforces Section 4.A & Section 11:
- * "A user must not approve their own submission."
- * "Only authorized roles can approve or reject submissions."
+ * Enforces Section 4.B: Project Team Assignment Authority.
+ * Only the Head of Directorate (for their own directorate) may add scientists
+ * to a project. The project must also be in an editable lifecycle state so
+ * assignments cannot be made against a locked/approved record.
  */
+export function canManageProjectMembers(
+  state: DatabaseState,
+  user: User,
+  project: Project
+): { allowed: boolean; reason?: string } {
+  const role = getUserRoleName(state, user);
+
+  if (role === 'system_admin' || role === 'director_general') {
+    return { allowed: true };
+  }
+
+  if (role === 'head_of_directorate') {
+    if (user.directorate_id !== project.directorate_id) {
+      return {
+        allowed: false,
+        reason: 'Cross-directorate restriction: You can only manage team assignments for projects in your own directorate.',
+      };
+    }
+    const editableStatuses = ['Draft', 'Proposed', 'Changes Requested'];
+    if (!editableStatuses.includes(project.status)) {
+      return {
+        allowed: false,
+        reason: `Project is in lifecycle status "${project.status}" and team assignments are locked.`,
+      };
+    }
+    return { allowed: true };
+  }
+
+  return {
+    allowed: false,
+    reason: 'Role restriction: Only the Head of Directorate may add scientists to project teams.',
+  };
+}
+
+/** Enforces Section 4 & Section 20: Record-level Directorate and Ownership Policy. */
 export function canApproveOrReviewEntity(
   state: DatabaseState,
   user: User,
@@ -172,4 +226,52 @@ export function filterReportsForUser(state: DatabaseState, user: User): Research
     return state.reports.filter((r) => r.directorate_id === user.directorate_id);
   }
   return state.reports.filter((r) => r.scientist_id === user.id);
+}
+
+export function canViewDocument(
+  state: DatabaseState,
+  user: User,
+  document: DocumentRecord
+): boolean {
+  const legacyDocument = document as DocumentRecord & {
+    uploaded_by?: string;
+    category?: string;
+  };
+  const role = getUserRoleName(state, user);
+  if (role === 'system_admin' || role === 'director_general') return true;
+  if (role === 'head_of_directorate' || role === 'directorate_admin') {
+    return document.directorate_id === user.directorate_id;
+  }
+
+  const category = document.document_category || legacyDocument.category;
+  if (category === 'Financial Voucher' || category === 'Approval Letter') {
+    return false;
+  }
+  if ((document.uploader_id || legacyDocument.uploaded_by) === user.id) return true;
+
+  if (document.project_id || (document.linked_entity_type === 'project' && document.linked_entity_id)) {
+    const projectId = document.project_id || document.linked_entity_id;
+    const project = state.projects.find((item) => item.id === projectId);
+    return Boolean(
+      project &&
+      (project.principal_investigator_id === user.id ||
+        project.created_by === user.id ||
+        state.project_members.some((member) => member.project_id === project.id && member.user_id === user.id))
+    );
+  }
+  if (document.linked_entity_type === 'output' && document.linked_entity_id) {
+    return state.research_outputs.some(
+      (output) => output.id === document.linked_entity_id && output.lead_scientist_id === user.id
+    );
+  }
+  if (document.linked_entity_type === 'report' && document.linked_entity_id) {
+    return state.reports.some(
+      (report) => report.id === document.linked_entity_id && report.scientist_id === user.id
+    );
+  }
+  return false;
+}
+
+export function filterDocumentsForUser(state: DatabaseState, user: User): DocumentRecord[] {
+  return state.documents.filter((document) => canViewDocument(state, user, document));
 }

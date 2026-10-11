@@ -183,6 +183,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   });
 
   const authorizedReports = filterReportsForUser(db, currentUser);
+  const personalProjects = authorizedProjects.filter(
+    (project) =>
+      project.principal_investigator_id === currentUser.id ||
+      project.created_by === currentUser.id ||
+      db.project_members.some(
+        (member) => member.project_id === project.id && member.user_id === currentUser.id
+      )
+  );
+  const personalOutputs = authorizedOutputs.filter(
+    (output) => output.lead_scientist_id === currentUser.id
+  );
+  const personalReports = authorizedReports.filter(
+    (report) => report.scientist_id === currentUser.id
+  );
+  const personalActivities = db.research_activities.filter(
+    (activity) => activity.scientist_id === currentUser.id
+  );
 
   const authorizedFunding = db.funding.filter((f) =>
     authorizedProjects.some((p) => p.id === f.project_id)
@@ -689,6 +706,87 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     director_general: 'Director General Institution-Wide Executive Command',
     system_admin: 'System Administration, RBAC Governance & Platform Security',
   };
+
+  if (roleName === 'scientist') {
+    const myProfile = db.researcher_profiles.find((profile) => profile.user_id === currentUser.id);
+    const profileFields = [
+      myProfile?.specialization,
+      myProfile?.academic_rank,
+      myProfile?.qualifications,
+      myProfile?.orcid,
+      myProfile?.research_interests,
+      myProfile?.areas_of_expertise,
+      myProfile?.biography,
+    ];
+    const profileCompletion = Math.round(
+      (profileFields.filter((value) => Boolean(value?.trim())).length / profileFields.length) * 100
+    );
+
+    return (
+      <div className="space-y-6">
+        <section className="relative overflow-hidden rounded-xl bg-[#102B3F] text-white p-6 sm:p-8">
+          <div className="absolute inset-y-0 right-0 w-1/3 bg-linear-to-l from-teal-500/25 to-transparent" />
+          <div className="relative flex flex-col lg:flex-row lg:items-end justify-between gap-5">
+            <div>
+              <div className="text-xs font-mono uppercase text-teal-300">Research workspace · {currentUser.staff_number}</div>
+              <h1 className="mt-2 text-2xl font-bold">Welcome back, {currentUser.full_name}</h1>
+              <p className="mt-1 text-sm text-slate-300">{userDirectorate?.code || 'KMFRI'} · {userDirectorate?.name || 'Institutional researcher'}</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={onQuickCreateProject} className="inline-flex items-center gap-2 rounded-md bg-teal-400 px-4 py-2.5 text-sm font-semibold text-[#102B3F] hover:bg-teal-300">
+                <Plus className="w-4 h-4" /> New project
+              </button>
+              <button type="button" onClick={() => onNavigate('profiles')} className="rounded-md border border-white/25 px-4 py-2.5 text-sm font-semibold hover:bg-white/10">My profile · {profileCompletion}%</button>
+            </div>
+          </div>
+        </section>
+
+        <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+          {[
+            { label: 'My projects', value: personalProjects.length, detail: `${personalProjects.filter((project) => project.status === 'In Progress').length} in progress`, icon: FolderKanban, section: 'projects' as NavSectionId },
+            { label: 'Lead publications', value: personalOutputs.length, detail: `${personalOutputs.filter((output) => output.status !== 'Draft').length} submitted or approved`, icon: BookOpen, section: 'outputs' as NavSectionId },
+            { label: 'My reports', value: personalReports.length, detail: `${personalReports.filter((report) => ['Submitted', 'Under Review'].includes(report.status)).length} awaiting review`, icon: FileText, section: 'reports' as NavSectionId },
+            { label: 'Research activities', value: personalActivities.length, detail: `${personalActivities.reduce((hours, activity) => hours + activity.hours, 0)} logged hours`, icon: Activity, section: 'activities' as NavSectionId },
+          ].map((metric) => {
+            const Icon = metric.icon;
+            return (
+              <button key={metric.label} type="button" onClick={() => onNavigate(metric.section)} className="text-left rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 hover:border-teal-500 transition-colors">
+                <div className="flex items-center justify-between text-xs text-slate-500"><span>{metric.label}</span><Icon className="w-4 h-4 text-teal-700 dark:text-teal-400" /></div>
+                <div className="mt-3 text-2xl font-bold font-mono">{metric.value}</div>
+                <div className="mt-1 text-xs text-slate-500">{metric.detail}</div>
+              </button>
+            );
+          })}
+        </section>
+
+        <section className="grid grid-cols-1 xl:grid-cols-5 gap-6">
+          <div className="xl:col-span-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div><h2 className="font-semibold">Assigned project work</h2><p className="mt-1 text-xs text-slate-500">Projects where you are PI, creator, or an assigned team member.</p></div>
+              <button type="button" onClick={() => onNavigate('projects')} className="text-xs font-semibold text-teal-700 dark:text-teal-400">View projects</button>
+            </div>
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
+              {personalProjects.slice(0, 5).map((project) => (
+                <div key={project.id} className="py-3 flex items-center justify-between gap-4">
+                  <div className="min-w-0"><div className="font-medium truncate">{project.title}</div><div className="mt-1 text-xs text-slate-500">{project.project_code} · {project.status}</div></div>
+                  <span className="shrink-0 font-mono text-sm">{project.calculated_progress}%</span>
+                </div>
+              ))}
+              {personalProjects.length === 0 && <p className="py-6 text-center text-sm text-slate-500">No project assignments yet.</p>}
+            </div>
+          </div>
+          <div className="xl:col-span-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
+            <h2 className="font-semibold">Recent activity</h2>
+            <p className="mt-1 text-xs text-slate-500">Your fieldwork and laboratory activity records.</p>
+            <div className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
+              {personalActivities.slice(0, 5).map((activity) => <div key={activity.id} className="py-3"><div className="font-medium text-sm">{activity.title}</div><div className="mt-1 text-xs text-slate-500">{activity.activity_category} · {activity.activity_date} · {activity.hours}h</div></div>)}
+              {personalActivities.length === 0 && <p className="py-6 text-center text-sm text-slate-500">No activity records yet.</p>}
+            </div>
+          </div>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

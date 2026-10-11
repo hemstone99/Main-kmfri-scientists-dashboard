@@ -11,7 +11,12 @@ import {
   getDirectorateById,
   appendAuditLog,
 } from '../services/database.ts';
-import { getUserRoleName } from '../services/rbacPolicy.ts';
+import {
+  canViewResearcherProfile,
+  filterDocumentsForUser,
+  filterProjectsForUser,
+  getUserRoleName,
+} from '../services/rbacPolicy.ts';
 import {
   FolderKanban,
   FileText,
@@ -69,6 +74,9 @@ export const SharePointCollaborationHub: React.FC<SharePointCollaborationHubProp
 }) => {
   const roleName = getUserRoleName(db, currentUser);
   const currentDir = getDirectorateById(db, currentUser.directorate_id);
+  const visibleDocuments = filterDocumentsForUser(db, currentUser);
+  const authorizedProjects = filterProjectsForUser(db, currentUser);
+  const visibleUsers = db.users.filter((user) => canViewResearcherProfile(db, currentUser, user));
 
   const [activeTab, setActiveTab] = useState<'drive' | 'word_studio' | 'imagery'>('drive');
   const [selectedLibrary, setSelectedLibrary] = useState<string>('ALL');
@@ -76,8 +84,8 @@ export const SharePointCollaborationHub: React.FC<SharePointCollaborationHubProp
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
   // Currently active document in Word Co-Authoring Studio
-  const [activeDocId, setActiveDocId] = useState<string>(db.documents[0]?.id || '');
-  const activeDoc = db.documents.find((d) => d.id === activeDocId) || db.documents[0] || null;
+  const [activeDocId, setActiveDocId] = useState<string>(visibleDocuments[0]?.id || '');
+  const activeDoc = visibleDocuments.find((d) => d.id === activeDocId) || visibleDocuments[0] || null;
 
   // Word Studio Editor state
   const [editorTitle, setEditorTitle] = useState(activeDoc?.title || '');
@@ -96,7 +104,7 @@ export const SharePointCollaborationHub: React.FC<SharePointCollaborationHubProp
   const [newDocTitle, setNewDocTitle] = useState('');
   const [newDocCategory, setNewDocCategory] = useState<DocumentRecord['category']>('Technical');
   const [newDocLibrary, setNewDocLibrary] = useState(DEFAULT_LIBRARIES[0]);
-  const [newDocProjectId, setNewDocProjectId] = useState(db.projects[0]?.id || '');
+  const [newDocProjectId, setNewDocProjectId] = useState(authorizedProjects[0]?.id || '');
   const [newDocIsImage, setNewDocIsImage] = useState(false);
   const [newDocImageUrl, setNewDocImageUrl] = useState('');
 
@@ -127,6 +135,9 @@ export const SharePointCollaborationHub: React.FC<SharePointCollaborationHubProp
   const [chatInput, setChatInput] = useState('');
   const [onlinePeers, setOnlinePeers] = useState<number>(1);
   const wsRef = useRef<WebSocket | null>(null);
+  const visibleChatMessages = roleName === 'scientist'
+    ? chatMessages.filter((message) => message.sender_id === currentUser.id)
+    : chatMessages;
 
   // Sync Word Studio editor when activeDocId changes
   useEffect(() => {
@@ -231,7 +242,7 @@ export const SharePointCollaborationHub: React.FC<SharePointCollaborationHubProp
   };
 
   // Filter documents by library and search query
-  const filteredDocs = db.documents.filter((doc) => {
+  const filteredDocs = visibleDocuments.filter((doc) => {
     if (selectedLibrary !== 'ALL' && (doc.library_folder || DEFAULT_LIBRARIES[0]) !== selectedLibrary) {
       return false;
     }
@@ -247,7 +258,7 @@ export const SharePointCollaborationHub: React.FC<SharePointCollaborationHubProp
     return true;
   });
 
-  const imageryDocs = db.documents.filter(
+  const imageryDocs = visibleDocuments.filter(
     (d) =>
       d.category === 'Imagery' ||
       d.mime_type.startsWith('image/') ||
@@ -611,7 +622,7 @@ export const SharePointCollaborationHub: React.FC<SharePointCollaborationHubProp
               }`}
             >
               <FolderKanban className="w-3.5 h-3.5" />
-              <span>SharePoint Document Libraries ({db.documents.length})</span>
+              <span>SharePoint Document Libraries ({visibleDocuments.length})</span>
             </button>
             <button
               type="button"
@@ -709,7 +720,7 @@ export const SharePointCollaborationHub: React.FC<SharePointCollaborationHubProp
                         : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
                     }`}
                   >
-                    All Libraries ({db.documents.length})
+                    All Libraries ({visibleDocuments.length})
                   </button>
                   {DEFAULT_LIBRARIES.map((lib) => (
                     <button
@@ -878,7 +889,7 @@ export const SharePointCollaborationHub: React.FC<SharePointCollaborationHubProp
                     onChange={(e) => setActiveDocId(e.target.value)}
                     className="text-xs border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 font-medium"
                   >
-                    {db.documents.map((d) => (
+                    {visibleDocuments.map((d) => (
                       <option key={d.id} value={d.id}>
                         {d.title} (v{d.version_label || `${d.version}.0`})
                       </option>
@@ -1052,7 +1063,7 @@ export const SharePointCollaborationHub: React.FC<SharePointCollaborationHubProp
                       <span>Assigned Co-Authors ({selectedCoAuthors.length})</span>
                     </h3>
                     <div className="max-h-36 overflow-y-auto space-y-1.5">
-                      {db.users.map((u) => {
+                      {visibleUsers.map((u) => {
                         const checked = selectedCoAuthors.includes(u.id);
                         return (
                           <label
@@ -1249,7 +1260,7 @@ export const SharePointCollaborationHub: React.FC<SharePointCollaborationHubProp
 
             {/* Chat Messages Feed */}
             <div className="flex-1 p-4 overflow-y-auto space-y-3 text-xs">
-              {chatMessages.map((m) => {
+              {visibleChatMessages.map((m) => {
                 const isMe = m.sender_id === currentUser.id;
                 return (
                   <div

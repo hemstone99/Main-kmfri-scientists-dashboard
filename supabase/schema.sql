@@ -148,7 +148,7 @@ VALUES
   ('dir-sed-004', 'SED', 'Socio-Economics & Data Governance Directorate', 'Blue economy valuation, BMU co-management, fisheries value chains, and national oceanographic data custody.', TRUE, TRUE)
 ON CONFLICT (id) DO NOTHING;
 
--- 4. Enable Row Level Security (RLS) & Policies for Authenticated / Service Access
+-- 4. Enable Row Level Security (RLS) for server-mediated service access only
 ALTER TABLE public.kmfri_app_state ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.directorates ENABLE ROW LEVEL SECURITY;
@@ -161,30 +161,30 @@ ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Allow read/write access to kmfri_app_state" ON public.kmfri_app_state;
 CREATE POLICY "Allow read/write access to kmfri_app_state"
-  ON public.kmfri_app_state FOR ALL
+  ON public.kmfri_app_state FOR ALL TO service_role
   USING (true)
   WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Allow access to roles" ON public.roles;
-CREATE POLICY "Allow access to roles" ON public.roles FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow access to roles" ON public.roles FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Allow access to directorates" ON public.directorates;
-CREATE POLICY "Allow access to directorates" ON public.directorates FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow access to directorates" ON public.directorates FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Allow access to users" ON public.users;
-CREATE POLICY "Allow access to users" ON public.users FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow access to users" ON public.users FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Allow access to projects" ON public.projects;
-CREATE POLICY "Allow access to projects" ON public.projects FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow access to projects" ON public.projects FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Allow access to project_milestones" ON public.project_milestones;
-CREATE POLICY "Allow access to project_milestones" ON public.project_milestones FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow access to project_milestones" ON public.project_milestones FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Allow access to research_outputs" ON public.research_outputs;
-CREATE POLICY "Allow access to research_outputs" ON public.research_outputs FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow access to research_outputs" ON public.research_outputs FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Allow access to documents" ON public.documents;
-CREATE POLICY "Allow access to documents" ON public.documents FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow access to documents" ON public.documents FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Allow append to audit_logs" ON public.audit_logs;
-CREATE POLICY "Allow append to audit_logs" ON public.audit_logs FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow append to audit_logs" ON public.audit_logs FOR ALL TO service_role USING (true) WITH CHECK (true);

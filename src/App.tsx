@@ -31,6 +31,10 @@ import {
 import {
   NavSectionId,
   canAccessNavSection,
+  canViewResearcherProfile,
+  filterDocumentsForUser,
+  filterOutputsForUser,
+  filterProjectsForUser,
 } from './services/rbacPolicy.ts';
 import { AuthGateway } from './components/AuthGateway.tsx';
 import { KmfriLogo } from './components/KmfriLogo.tsx';
@@ -222,10 +226,16 @@ export default function App() {
     );
   }
 
-  // Server-side equivalent RBAC check on active section
+  // Route-level RBAC check for the active application section
   const isAuthorizedSection = canAccessNavSection(db, currentUser, activeSection);
   const currentRole = getRoleById(db, currentUser.role_id);
   const currentDirectorate = getDirectorateById(db, currentUser.directorate_id);
+  const searchableProjects = filterProjectsForUser(db, currentUser);
+  const searchableOutputs = filterOutputsForUser(db, currentUser);
+  const searchableDocuments = filterDocumentsForUser(db, currentUser);
+  const searchableUsers = db.users.filter((user) =>
+    canViewResearcherProfile(db, currentUser, user)
+  );
   const unreadNotificationsCount = db.notifications.filter(
     (n) => n.user_id === currentUser.id && !n.read_at
   ).length;
@@ -323,6 +333,9 @@ export default function App() {
               {visibleNavItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = activeSection === item.id;
+                const itemLabel = item.id === 'profiles' && currentRole?.name === 'scientist'
+                  ? 'My Profile'
+                  : item.label;
                 return (
                   <button
                     key={item.id}
@@ -331,7 +344,7 @@ export default function App() {
                       setActiveSection(item.id);
                       setMobileMenuOpen(false);
                     }}
-                    title={item.label}
+                    title={itemLabel}
                     className={`w-full flex items-center ${
                       sidebarCollapsed
                         ? 'justify-between px-3 lg:justify-center lg:px-2'
@@ -345,7 +358,7 @@ export default function App() {
                     <div className="flex items-center gap-2.5 truncate">
                       <Icon className="w-4 h-4 shrink-0" />
                       <span className={sidebarCollapsed ? 'truncate lg:hidden' : 'truncate'}>
-                        {item.label}
+                        {itemLabel}
                       </span>
                     </div>
                     {item.id === 'notifications' && unreadNotificationsCount > 0 && (
@@ -400,7 +413,9 @@ export default function App() {
               </span>
               <span aria-hidden="true" className="text-slate-300 dark:text-slate-700 hidden md:inline">/</span>
               <span className="font-semibold text-teal-700 dark:text-teal-400 truncate max-w-[140px] sm:max-w-none">
-                {SIDEBAR_ITEMS.find((i) => i.id === activeSection)?.label || 'Workspace'}
+                {activeSection === 'profiles' && currentRole?.name === 'scientist'
+                  ? 'My Profile'
+                  : SIDEBAR_ITEMS.find((i) => i.id === activeSection)?.label || 'Workspace'}
               </span>
             </div>
 
@@ -466,7 +481,7 @@ export default function App() {
                     if (!q) return;
                     setSearchDropdownOpen(true);
                     if (
-                      db.research_outputs.some(
+                      searchableOutputs.some(
                         (o) =>
                           o.title.toLowerCase().includes(q) ||
                           o.doi.toLowerCase().includes(q)
@@ -474,11 +489,11 @@ export default function App() {
                     ) {
                       setActiveSection('outputs');
                     } else if (
-                      db.documents.some((d) => d.title.toLowerCase().includes(q))
+                      searchableDocuments.some((d) => d.title.toLowerCase().includes(q))
                     ) {
                       setActiveSection('sharepoint_hub');
                     } else if (
-                      db.users.some(
+                      searchableUsers.some(
                         (u) =>
                           u.full_name.toLowerCase().includes(q) ||
                           u.staff_number.toLowerCase().includes(q)
@@ -533,28 +548,28 @@ export default function App() {
 
                     {(() => {
                       const q = globalSearch.trim().toLowerCase();
-                      const matchedProjects = db.projects
+                      const matchedProjects = searchableProjects
                         .filter(
                           (p) =>
                             p.title.toLowerCase().includes(q) ||
                             p.project_code.toLowerCase().includes(q)
                         )
                         .slice(0, 3);
-                      const matchedOutputs = db.research_outputs
+                      const matchedOutputs = searchableOutputs
                         .filter(
                           (o) =>
                             o.title.toLowerCase().includes(q) ||
                             o.doi.toLowerCase().includes(q)
                         )
                         .slice(0, 3);
-                      const matchedDocs = db.documents
+                      const matchedDocs = searchableDocuments
                         .filter(
                           (d) =>
                             d.title.toLowerCase().includes(q) ||
                             d.file_name.toLowerCase().includes(q)
                         )
                         .slice(0, 3);
-                      const matchedUsers = db.users
+                      const matchedUsers = searchableUsers
                         .filter(
                           (u) =>
                             u.full_name.toLowerCase().includes(q) ||
@@ -688,7 +703,7 @@ export default function App() {
             {!isAuthorizedSection ? (
               <div className="bg-white dark:bg-slate-900 border border-red-200 dark:border-red-900/40 rounded-xl p-6 sm:p-8 text-center">
                 <h2 className="text-base font-bold text-red-700 dark:text-red-400 mb-1">
-                  403 Forbidden — Server-Side RBAC Policy Enforcement
+                  403 Forbidden — Role Permission Check
                 </h2>
                 <p className="text-xs text-slate-600 dark:text-slate-400">
                   Your current role ({currentRole?.label}) is not authorized to access this administrative or

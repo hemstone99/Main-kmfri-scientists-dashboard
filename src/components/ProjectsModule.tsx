@@ -11,6 +11,7 @@ import {
   filterProjectsForUser,
   canEditProject,
   canApproveOrReviewEntity,
+  canManageProjectMembers,
   getUserRoleName,
 } from '../services/rbacPolicy.ts';
 import {
@@ -32,6 +33,7 @@ import {
   RotateCcw,
   Calendar,
   AlertCircle,
+  ShieldAlert,
   ArrowLeft,
   Table2,
   BarChartHorizontal,
@@ -785,11 +787,27 @@ export const ProjectsModule: React.FC<ProjectsModuleProps> = ({
 
   const handleAddTeamMember = (e: React.FormEvent, project: Project) => {
     e.preventDefault();
-    if (!newMemberUserId) return;
+    const permission = canManageProjectMembers(db, currentUser, project);
+    const candidate = db.users.find((user) => user.id === newMemberUserId);
+    if (!permission.allowed || !candidate) {
+      setFormError(permission.reason || 'Select a valid scientist for this assignment.');
+      return;
+    }
+    if (getUserRoleName(db, candidate) !== 'scientist' || candidate.directorate_id !== project.directorate_id) {
+      setFormError('Only an active scientist from this project directorate can be assigned.');
+      return;
+    }
+    if (candidate.account_status !== 'Active') {
+      setFormError('Inactive or locked accounts cannot be assigned to a project.');
+      return;
+    }
     const exists = db.project_members.some(
       (m) => m.project_id === project.id && m.user_id === newMemberUserId
     );
-    if (exists) return;
+    if (exists) {
+      setFormError('This scientist is already assigned to the project.');
+      return;
+    }
 
     const member: ProjectMember = {
       id: generateUuid(),
@@ -813,11 +831,23 @@ export const ProjectsModule: React.FC<ProjectsModuleProps> = ({
       created_at: new Date().toISOString(),
     };
 
-    onUpdateDb({
+    let nextState = {
       ...db,
       project_members: [...db.project_members, member],
       notifications: [notifyMember, ...db.notifications],
-    });
+    };
+    nextState = appendAuditLog(
+      nextState,
+      currentUser,
+      'PROJECT_SCIENTIST_ASSIGNED',
+      'project_members',
+      member.id,
+      null,
+      { project_id: project.id, user_id: candidate.id, project_role: member.project_role }
+    );
+    onUpdateDb(nextState);
+    setFormError(null);
+    setNewMemberUserId('');
   };
 
   if (selectedProject) {
@@ -844,6 +874,22 @@ export const ProjectsModule: React.FC<ProjectsModuleProps> = ({
       selectedProject.principal_investigator_id,
       selectedProject.status
     );
+    const memberManagementCheck = canManageProjectMembers(
+      db,
+      currentUser,
+      selectedProject
+    );
+    const assignableScientists = db.users.filter(
+      (user) =>
+        getUserRoleName(db, user) === 'scientist' &&
+        user.directorate_id === selectedProject.directorate_id &&
+        user.account_status === 'Active' &&
+        !members.some((member) => member.user_id === user.id)
+    );
+    const roleName = getUserRoleName(db, currentUser);
+    const visibleDetailTabs = roleName === 'scientist'
+      ? DETAIL_TABS.filter((tab) => !['Budget', 'Funding', 'Approvals', 'Documents'].includes(tab))
+      : DETAIL_TABS;
 
     return (
       <div className="space-y-6">
@@ -872,7 +918,7 @@ export const ProjectsModule: React.FC<ProjectsModuleProps> = ({
                 <span>Edit Core Project Data</span>
               </button>
 
-              <button
+              {roleName !== 'scientist' && <button
                 type="button"
                 disabled={pdfExporting === selectedProject.id}
                 onClick={() => handleServerPdfExport('single_project', selectedProject)}
@@ -884,7 +930,7 @@ export const ProjectsModule: React.FC<ProjectsModuleProps> = ({
                     ? 'Generating PDF...'
                     : 'Export Project Dossier PDF'}
                 </span>
-              </button>
+              </button>}
 
               {editable && (
                 <button
@@ -974,7 +1020,7 @@ export const ProjectsModule: React.FC<ProjectsModuleProps> = ({
 
           {/* 13 Project Detail Tabs */}
           <div className="mt-5 pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center gap-1 overflow-x-auto pb-1">
-            {DETAIL_TABS.map((tab) => (
+            {visibleDetailTabs.map((tab) => (
               <button
                 key={tab}
                 type="button"
@@ -1186,7 +1232,7 @@ export const ProjectsModule: React.FC<ProjectsModuleProps> = ({
                     {selectedProject.objectives}
                   </p>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-slate-200 dark:border-slate-800">
+                {roleName !== 'scientist' && <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-slate-200 dark:border-slate-800">
                   <div>
                     <h4 className="text-xs font-semibold text-slate-500 mb-1">
                       Risks & Operational Issues
@@ -1203,7 +1249,7 @@ export const ProjectsModule: React.FC<ProjectsModuleProps> = ({
                       {selectedProject.mitigation_measures}
                     </p>
                   </div>
-                </div>
+                </div>}
               </div>
 
               <div className="lg:col-span-4 space-y-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-xl p-4 text-xs">
@@ -1228,6 +1274,7 @@ export const ProjectsModule: React.FC<ProjectsModuleProps> = ({
                   <span className="text-slate-500">Expected End Date</span>
                   <span className="font-mono">{selectedProject.expected_end_date}</span>
                 </div>
+                {roleName !== 'scientist' && <>
                 <div className="flex justify-between py-1.5 border-b border-slate-200/70 dark:border-slate-700">
                   <span className="text-slate-500">Approved Budget</span>
                   <span className="font-mono font-bold">
@@ -1238,6 +1285,7 @@ export const ProjectsModule: React.FC<ProjectsModuleProps> = ({
                     <span className="text-slate-500">Grant Reference</span>
                     <span className="font-mono">{selectedProject.grant_reference}</span>
                   </div>
+                </>}
                 </div>
               </div>
             </div>
@@ -1296,61 +1344,79 @@ export const ProjectsModule: React.FC<ProjectsModuleProps> = ({
                 </table>
               </div>
 
-              <form
-                onSubmit={(e) => handleAddTeamMember(e, selectedProject)}
-                className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end"
-              >
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Assign Researcher
-                  </label>
-                  <select
-                    value={newMemberUserId}
-                    onChange={(e) => setNewMemberUserId(e.target.value)}
-                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white dark:bg-slate-900"
-                  >
-                    {db.users.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.full_name} ({u.staff_number})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Project Role
-                  </label>
-                  <select
-                    value={newMemberRole}
-                    onChange={(e) =>
-                      setNewMemberRole(e.target.value as ProjectMember['project_role'])
-                    }
-                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white dark:bg-slate-900"
-                  >
-                    <option value="Co-Investigator">Co-Investigator</option>
-                    <option value="Research Scientist">Research Scientist</option>
-                    <option value="Laboratory Analyst">Laboratory Analyst</option>
-                    <option value="Field Coordinator">Field Coordinator</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Specific Responsibilities
-                  </label>
-                  <input
-                    type="text"
-                    value={newMemberResp}
-                    onChange={(e) => setNewMemberResp(e.target.value)}
-                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white dark:bg-slate-900"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="py-1.5 px-4 bg-[#0A2540] text-white text-xs font-semibold rounded-lg cursor-pointer"
+              {memberManagementCheck.allowed ? (
+                <form
+                  onSubmit={(e) => handleAddTeamMember(e, selectedProject)}
+                  className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end"
                 >
-                  Assign Member
-                </button>
-              </form>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Assign Researcher
+                    </label>
+                    <select
+                      value={newMemberUserId}
+                      onChange={(e) => setNewMemberUserId(e.target.value)}
+                      required
+                      className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white dark:bg-slate-900"
+                    >
+                      <option value="" disabled>Select a scientist</option>
+                      {assignableScientists.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.full_name} ({u.staff_number})
+                        </option>
+                      ))}
+                    </select>
+                    {assignableScientists.length === 0 && (
+                      <p className="mt-1 text-[11px] text-slate-500">No eligible unassigned scientists in this directorate.</p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Project Role
+                    </label>
+                    <select
+                      value={newMemberRole}
+                      onChange={(e) =>
+                        setNewMemberRole(e.target.value as ProjectMember['project_role'])
+                      }
+                      className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white dark:bg-slate-900"
+                    >
+                      <option value="Co-Investigator">Co-Investigator</option>
+                      <option value="Research Scientist">Research Scientist</option>
+                      <option value="Laboratory Analyst">Laboratory Analyst</option>
+                      <option value="Field Coordinator">Field Coordinator</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Specific Responsibilities
+                    </label>
+                    <input
+                      type="text"
+                      value={newMemberResp}
+                      onChange={(e) => setNewMemberResp(e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white dark:bg-slate-900"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={assignableScientists.length === 0}
+                    className="py-1.5 px-4 bg-[#0A2540] text-white text-xs font-semibold rounded-lg cursor-pointer"
+                  >
+                    Assign Member
+                  </button>
+                </form>
+              ) : (
+                <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-200 flex items-center gap-2">
+                  <ShieldAlert className="w-4 h-4 shrink-0" />
+                  <span>
+                    Project team assignment is restricted to the Head of Directorate for this
+                    project's directorate. Contact your System Administrator if you believe this
+                    is an error.
+                  </span>
+                </div>
+              )}
+              {formError && <p role="alert" className="text-xs text-red-700 dark:text-red-400">{formError}</p>}
             </div>
           )}
 
