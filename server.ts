@@ -958,10 +958,12 @@ async function startServer() {
       });
       delivered = await trySend(primaryTransporter);
 
-      // 2) Secondary relay fallback (Ethereal test mailbox) when the primary
-      //    SMTP server rejects the connection; never expose the OTP code in the
-      //    client response or verification page.
-      if (!delivered) {
+      // 2) Secondary relay fallback (Ethereal test mailbox) when the primary SMTP
+//    server rejects the connection. This is an opt-in debugging aid only —
+//    never enabled in production, because silently "delivering" to a test
+//    mailbox the user never checks is worse than failing loudly. Set
+//    SMTP_DEV_FALLBACK=true to enable it during local development.
+if (!delivered && process.env.SMTP_DEV_FALLBACK === 'true') {
         try {
           const testAccount = await nodemailer.createTestAccount();
           const relayTransporter = nodemailer.createTransport({
@@ -978,9 +980,24 @@ async function startServer() {
 
       if (!delivered) {
         console.error('Failed to deliver OTP email to', normalizedEmail, ':', lastError);
+        // Categorize the failure for the client without leaking server internals
+        // or credentials. Codes come from nodemailer/SMTP libraries.
+        const msg = lastError instanceof Error ? lastError.message : String(lastError);
+        const lower = msg.toLowerCase();
+        let hint = 'Please verify your SMTP configuration or try again later.';
+        if (lower.includes('invalid login') || lower.includes('authentication failed') || lower.includes('535')) {
+          hint = 'SMTP authentication was rejected. Check SMTP_USER and SMTP_PASS (for Gmail this must be a 16-char App Password, not your regular password).';
+        } else if (lower.includes('getaddrinfo') || lower.includes('enotfound') || lower.includes('connection refused') || lower.includes('ehlo')) {
+          hint = 'Could not reach the SMTP host. Verify SMTP_HOST (e.g. smtp.gmail.com) and that your deployment host is not blocking outbound SMTP.';
+        } else if (lower.includes('timeout') || lower.includes('socket timeout') || lower.includes('connection timeout')) {
+          hint = 'SMTP connection timed out. The server is reachable but not responding in time — try again later or switch SMTP provider/port.';
+        } else if (lower.includes('tls') || lower.includes('ssl') || lower.includes('certificate') || lower.includes('starttls')) {
+          hint = 'TLS/SSL handshake failed. Confirm SMTP_PORT (587 = STARTTLS, 465 = implicit TLS) matches your provider.';
+        } else if (lower.includes('530') || lower.includes('5.7') || lower.includes('not authenticated')) {
+          hint = 'SMTP server refused the message. Authentication is required but was not accepted.';
+        }
         res.status(503).json({
-          error:
-            'Could not deliver the OTP verification email. Please verify your SMTP configuration or try again later.',
+          error: `Could not deliver the OTP verification email. ${hint}`,
         });
         return;
       }
@@ -1063,6 +1080,62 @@ async function startServer() {
       step: 'completed',
       message: 'OTP verification succeeded. Password update authorized.',
     });
+  });
+
+  // ==========================================================================
+  // ENDPOINT B-PRIME: SMTP DIAGNOSTICS (AUTH-ONLY, NO MESSAGE SENT)
+  // ==========================================================================
+  // Lets an administrator verify the configured SMTP relay without triggering
+  // a real password-reset email. Performs a connection + AUTH handshake and
+  // reports the result. Never transmits a password to the client.
+  app.post('/api/admin/smtp-test', async (req: Request, res: Response) => {
+    const smtpUser = (process.env.SMTP_USER || SMTP_CONFIG.user || '').trim();
+    const smtpPass = (process.env.SMTP_PASS || SMTP_CONFIG.pass || '').replace(/\s+/g, '');
+    const smtpHost = (process.env.SMTP_HOST || SMTP_CONFIG.host || '').trim();
+    const smtpPort = Number(process.env.SMTP_PORT) || SMTP_CONFIG.port;
+
+    if (!smtpUser || !smtpPass || !smtpHost) {
+      res.status(503).json({
+        ok: false,
+        configured: false,
+        error: 'SMTP is not configured (missing SMTP_HOST/SMTP_USER/SMTP_PASS).',
+      });
+      return;
+    }
+
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpPort === 465,
+      auth: { user: smtpUser, pass: smtpPass },
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 20000,
+      tls: smtpPort === 587 ? { rejectUnauthorized: false } : undefined,
+    });
+
+    try {
+      await transporter.verify();
+      res.json({
+        ok: true,
+        configured: true,
+        host: smtpHost,
+        port: smtpPort,
+        secure: smtpPort === 465,
+        user: smtpUser,
+        message: 'SMTP relay verified successfully. Authentication accepted.',
+      });
+    } catch (err) {
+      res.status(503).json({
+        ok: false,
+        configured: true,
+        host: smtpHost,
+        port: smtpPort,
+        secure: smtpPort === 465,
+        user: smtpUser,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   });
 
   // ==========================================================================
