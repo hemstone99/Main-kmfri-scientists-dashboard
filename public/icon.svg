@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="kmfriBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0A1E3F" />
+      <stop offset="55%" stop-color="#173B75" />
+      <stop offset="100%" stop-color="#159A9C" />
+    </linearGradient>
+    <linearGradient id="kmfriWave" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38BDF8" />
+      <stop offset="100%" stop-color="#2DD4BF" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#kmfriBg)" />
+  <circle cx="256" cy="240" r="156" fill="none" stroke="rgba(255,255,255,0.22)" stroke-width="10" />
+  <path d="M128 265 C175 220, 220 310, 265 265 C310 220, 350 310, 384 265" fill="none" stroke="url(#kmfriWave)" stroke-width="22" stroke-linecap="round" />
+  <path d="M148 318 C190 282, 232 354, 274 318 C316 282, 348 345, 368 318" fill="none" stroke="#FFFFFF" stroke-width="16" stroke-linecap="round" opacity="0.9" />
+  <text x="256" y="210" text-anchor="middle" fill="#FFFFFF" font-family="system-ui, -apple-system, sans-serif" font-weight="800" font-size="68" letter-spacing="4">KMFRI</text>
+</svg>

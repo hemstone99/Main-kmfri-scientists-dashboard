@@ -1,0 +1,38 @@
+# =============================================================================
+# RENDER DEPLOYMENT BLUEPRINT (render.yaml)
+# Deploys the KMFRI Scientists & Research Management System on Render
+# Connected to Supabase PostgreSQL Database
+# =============================================================================
+services:
+  - type: web
+    name: kmfri-research-management-system
+    runtime: node
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        value: "KMFRI System <noreply@kmfri.go.ke>"
