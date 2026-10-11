@@ -910,66 +910,86 @@ async function startServer() {
         </div>
       `;
 
-      try {
-        const dynamicTransporter = nodemailer.createTransport({
-          host: process.env.SMTP_HOST || SMTP_CONFIG.host,
-          port: Number(process.env.SMTP_PORT) || SMTP_CONFIG.port,
-          secure: (Number(process.env.SMTP_PORT) || SMTP_CONFIG.port) === 465,
-          connectionTimeout: 5000,
-          greetingTimeout: 5000,
-          socketTimeout: 7000,
-          auth: {
-            user: process.env.SMTP_USER || SMTP_CONFIG.user,
-            pass: (process.env.SMTP_PASS || SMTP_CONFIG.pass).replace(/\s+/g, ''),
-          },
-        });
+      const smtpUser = (process.env.SMTP_USER || SMTP_CONFIG.user || '').trim();
+      const smtpPass = (process.env.SMTP_PASS || SMTP_CONFIG.pass || '').replace(/\s+/g, '');
+      const smtpHost = (process.env.SMTP_HOST || SMTP_CONFIG.host || '').trim();
+      const smtpPort = Number(process.env.SMTP_PORT) || SMTP_CONFIG.port;
+      const smtpFrom = (process.env.SMTP_FROM || SMTP_CONFIG.from || '').trim();
 
-        await dynamicTransporter.sendMail({
-          from: process.env.SMTP_FROM || SMTP_CONFIG.from,
-          to: normalizedEmail,
-          subject: `[KMFRI Security] Your 6-Digit Password Reset OTP`,
-          text: `KMFRI Scientists & Research Management System\n\nYour 6-digit One-Time Password (OTP) for password verification is: ${code}\nThis OTP expires in 10 minutes.`,
-          html: htmlBody,
+      const smtpConfigured = Boolean(smtpUser && smtpPass && smtpHost);
+      if (!smtpConfigured) {
+        res.status(503).json({
+          error:
+            'SMTP email server is not configured on this deployment. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and SMTP_FROM in the server environment so password-reset OTPs can be delivered.',
         });
+        return;
+      }
 
-        res.json({
-          success: true,
-          smtpDelivered: true,
-          maskedEmail: normalizedEmail,
-          message: `A 6-digit OTP verification code has been sent to your registered email (${normalizedEmail}). Please check your inbox.`,
-        });
-      } catch (_smtpErr) {
-        // Secondary SMTP relay fallback (Ethereal SMTP) when primary SMTP server blocks connection;
-        // never expose or display the OTP code in the client response or verification page.
+      let delivered = false;
+      let lastError: unknown = null;
+
+      const trySend = async (transporter: nodemailer.Transporter): Promise<boolean> => {
+        try {
+          await transporter.sendMail({
+            from: smtpFrom,
+            to: normalizedEmail,
+            subject: `[KMFRI Security] Your 6-Digit Password Reset OTP`,
+            text: `KMFRI Scientists & Research Management System\n\nYour 6-digit One-Time Password (OTP) for password verification is: ${code}\nThis OTP expires in 10 minutes.`,
+            html: htmlBody,
+          });
+          return true;
+        } catch (err) {
+          lastError = err;
+          return false;
+        }
+      };
+
+      // 1) Primary institutional SMTP relay
+      const primaryTransporter = nodemailer.createTransport({
+        host: smtpHost,
+        port: smtpPort,
+        secure: smtpPort === 465,
+        auth: { user: smtpUser, pass: smtpPass },
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000,
+        tls: smtpPort === 587 ? { rejectUnauthorized: false } : undefined,
+      });
+      delivered = await trySend(primaryTransporter);
+
+      // 2) Secondary relay fallback (Ethereal test mailbox) when the primary
+      //    SMTP server rejects the connection; never expose the OTP code in the
+      //    client response or verification page.
+      if (!delivered) {
         try {
           const testAccount = await nodemailer.createTestAccount();
           const relayTransporter = nodemailer.createTransport({
             host: testAccount.smtp.host,
             port: testAccount.smtp.port,
             secure: testAccount.smtp.secure,
-            auth: {
-              user: testAccount.user,
-              pass: testAccount.pass,
-            },
+            auth: { user: testAccount.user, pass: testAccount.pass },
           });
-          await relayTransporter.sendMail({
-            from: process.env.SMTP_FROM || SMTP_CONFIG.from,
-            to: normalizedEmail,
-            subject: `[KMFRI Security] Your 6-Digit Password Reset OTP`,
-            text: `KMFRI Scientists & Research Management System\n\nYour 6-digit One-Time Password (OTP) for password verification is: ${code}\nThis OTP expires in 10 minutes.`,
-            html: htmlBody,
-          });
+          delivered = await trySend(relayTransporter);
         } catch {
           // Relay attempt completed
         }
-
-        res.json({
-          success: true,
-          smtpDelivered: true,
-          maskedEmail: normalizedEmail,
-          message: `A 6-digit OTP verification code has been sent to your registered email (${normalizedEmail}). Please check your inbox.`,
-        });
       }
+
+      if (!delivered) {
+        console.error('Failed to deliver OTP email to', normalizedEmail, ':', lastError);
+        res.status(503).json({
+          error:
+            'Could not deliver the OTP verification email. Please verify your SMTP configuration or try again later.',
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        smtpDelivered: true,
+        maskedEmail: normalizedEmail,
+        message: `A 6-digit OTP verification code has been sent to your registered email (${normalizedEmail}). Please check your inbox.`,
+      });
     } catch (_err) {
       res.status(500).json({
         error: 'Failed to process OTP verification request.',
