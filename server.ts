@@ -1,5 +1,6 @@
 import express, { Request, Response } from 'express';
 import http from 'http';
+import fs from 'fs';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer as createViteServer } from 'vite';
 import PDFDocument from 'pdfkit';
@@ -1439,7 +1440,18 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(__dirname, 'dist');
+    // The Vite production build output (dist/) can sit at different
+    // locations depending on how the entry file is loaded (tsx may resolve
+    // server.ts from the project root or from a src/ subdirectory on some
+    // hosts). Resolve the first candidate that actually exists instead of
+    // assuming a fixed relationship to __dirname.
+    const candidates = [
+      path.join(__dirname, 'dist'),
+      path.join(__dirname, '..', 'dist'),
+      path.join(process.cwd(), 'dist'),
+      path.join(process.cwd(), '..', 'dist'),
+    ];
+    const distPath = candidates.find((p) => fs.existsSync(p)) || candidates[0];
     app.use(express.static(distPath));
     app.get('*', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
