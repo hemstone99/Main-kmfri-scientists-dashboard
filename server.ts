@@ -4,7 +4,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { createServer as createViteServer } from 'vite';
 import PDFDocument from 'pdfkit';
 import nodemailer from 'nodemailer';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 import { createClient } from '@supabase/supabase-js';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -1089,20 +1089,19 @@ async function startServer() {
         return;
       }
 
-      const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-
+      const genAI = new GoogleGenAI({ apiKey });
       const systemPrompt =
         mode === 'draft_section'
           ? 'You are a senior marine and fisheries research editor at the Kenya Marine and Fisheries Research Institute (KMFRI). Write scholarly, peer-reviewed scientific prose grounded in real marine/freshwater literature with inline APA citations.'
           : mode === 'peer_review'
           ? 'You are a scientific peer reviewer for KMFRI (Western Indian Ocean Journal of Marine Science / African Journal of Tropical Hydrobiology and Fisheries). Provide constructive methodological, statistical, and citation feedback.'
           : 'You are a scientific literature grounding specialist for KMFRI researchers. Retrieve and synthesize real peer-reviewed marine, coastal, aquaculture, limnology, and blue economy studies, including author names, publication years, key findings, and DOIs/URLs where available.';
-
-      const prompt = `${systemPrompt}\n\nManuscript Context: "${manuscriptTitle || 'KMFRI Scientific Study'}" (Directorate: ${directorateCode || 'KMFRI'})\nResearcher Query: ${query}\n\nPlease provide grounded literature citations with DOIs/URLs where available.`;
-
-      const result = await model.generateContent(prompt);
-      const text = result.response.text() || '';
+      const userPrompt = `${systemPrompt}\n\nManuscript Context: "${manuscriptTitle || 'KMFRI Scientific Study'}" (Directorate: ${directorateCode || 'KMFRI'})\nResearcher Query: ${query}\n\nPlease provide grounded literature citations with DOIs/URLs where available.`;
+      const result = await genAI.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: userPrompt,
+      });
+      const text = result.text || '';
 
       res.json({
         synthesis: text,
