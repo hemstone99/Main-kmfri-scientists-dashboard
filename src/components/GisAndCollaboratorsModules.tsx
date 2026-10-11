@@ -13,6 +13,7 @@ import {
   SEED_KMFRI_STATIONS,
 } from '../services/database.ts';
 import { addKenyaBordersOverlay } from '../services/kenyaGeoJson.ts';
+import { canManageLocations } from '../services/rbacPolicy.ts';
 import {
   MapPin,
   CheckCircle2,
@@ -21,7 +22,9 @@ import {
   Layers,
   RotateCcw,
   Trash2,
+  Lock,
 } from 'lucide-react';
+import { getUserRoleName } from '../services/rbacPolicy.ts';
 
 interface GisAndCollaboratorsModulesProps {
   db: DatabaseState;
@@ -61,6 +64,9 @@ export const GisAndCollaboratorsModules: React.FC<GisAndCollaboratorsModulesProp
   const [dirFilter, setDirFilter] = useState<string>('ALL');
   const [ecoFilter, setEcoFilter] = useState<string>('ALL');
   const [focusedStationId, setFocusedStationId] = useState<string | null>(null);
+  // Scientists may view the atlas but may not add, edit, or delete stations.
+  const roleName = getUserRoleName(db, currentUser);
+  const canManageLocationsState = canManageLocations(db, currentUser);
 
   // Location form
   const [locName, setLocName] = useState('');
@@ -472,133 +478,152 @@ export const GisAndCollaboratorsModules: React.FC<GisAndCollaboratorsModulesProp
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Left: Register New Field Sampling Station Form */}
-          <div className="lg:col-span-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-4">
-            <div>
-              <h2 className="text-sm font-bold text-slate-900 dark:text-white">
-                Add Field Sampling Site / Buoy Coordinate
-              </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Validates GPS bounds (-90° to +90° Lat, -180° to +180° Lng) and plots a live marker.
+          {canManageLocationsState ? (
+            <div className="lg:col-span-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-4">
+              <div>
+                <h2 className="text-sm font-bold text-slate-900 dark:text-white">
+                  Add Field Sampling Site / Buoy Coordinate
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Validates GPS bounds (-90° to +90° Lat, -180° to +180° Lng) and plots a live marker.
+                </p>
+              </div>
+
+              <form onSubmit={handleCreateLocation} className="space-y-3 text-xs">
+                <div>
+                  <label className="block font-semibold mb-1">Station / Sampling Site Name</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Enter station or sampling site name"
+                    value={locName}
+                    onChange={(e) => setLocName(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold mb-1">Latitude (-90 to +90)</label>
+                    <input
+                      type="number"
+                      step="any"
+                      required
+                      placeholder="-4.0547"
+                      value={locLat}
+                      onChange={(e) => setLocLat(e.target.value)}
+                      className="w-full px-3 py-2 font-mono rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold mb-1">Longitude (-180 to +180)</label>
+                    <input
+                      type="number"
+                      step="any"
+                      required
+                      placeholder="39.6836"
+                      value={locLng}
+                      onChange={(e) => setLocLng(e.target.value)}
+                      className="w-full px-3 py-2 font-mono rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold mb-1">County</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="County name"
+                      value={locCounty}
+                      onChange={(e) => setLocCounty(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold mb-1">Specific Site / Beach</label>
+                    <input
+                      type="text"
+                      placeholder="Landing beach or reef"
+                      value={locSite}
+                      onChange={(e) => setLocSite(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold mb-1">Directorate</label>
+                    <select
+                      value={locDirId}
+                      onChange={(e) => setLocDirId(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                    >
+                      {db.directorates.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.code} — {d.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-semibold mb-1">Ecosystem Context</label>
+                    <select
+                      value={locEco}
+                      onChange={(e) =>
+                        setLocEco(e.target.value as ResearchLocation['ecosystem_type'])
+                      }
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                    >
+                      <option value="Marine & Coastal">Marine &amp; Coastal</option>
+                      <option value="Freshwater Lake / River">Freshwater Lake / River</option>
+                      <option value="Aquaculture Station">Aquaculture Station</option>
+                      <option value="Socioeconomic Community Site">
+                        Socioeconomic Community Site
+                      </option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-semibold mb-1">Water Body / Marine Area</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Western Indian Ocean EEZ or Lake Victoria"
+                    value={locMarineArea}
+                    onChange={(e) => setLocMarineArea(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-2.5 px-4 bg-[#173B75] hover:bg-[#3155A4] text-white font-semibold rounded-lg cursor-pointer transition-colors"
+                >
+                  Validate Coordinates &amp; Pin Station
+                </button>
+              </form>
+            </div>
+          ) : (
+            <div className="lg:col-span-4 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-xl p-5 space-y-3">
+              <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200">
+                <Lock className="w-4 h-4 shrink-0" />
+                <h2 className="text-sm font-bold">Read-Only Research Atlas</h2>
+              </div>
+              <p className="text-xs text-amber-700 dark:text-amber-300">
+                Your role (<span className="font-semibold">{roleName}</span>) may view the KMFRI
+                national stations map and browse georeferenced sites, but only the Head of
+                Directorate (for your own directorate), Directorate Administrator, Director
+                General, or System Administrator may register new sampling stations.
+              </p>
+              <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                To propose a new station coordinate, contact your Directorate Head or the
+                System Administrator.
               </p>
             </div>
-
-            <form onSubmit={handleCreateLocation} className="space-y-3 text-xs">
-              <div>
-                <label className="block font-semibold mb-1">Station / Sampling Site Name</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Enter station or sampling site name"
-                  value={locName}
-                  onChange={(e) => setLocName(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold mb-1">Latitude (-90 to +90)</label>
-                  <input
-                    type="number"
-                    step="any"
-                    required
-                    placeholder="-4.0547"
-                    value={locLat}
-                    onChange={(e) => setLocLat(e.target.value)}
-                    className="w-full px-3 py-2 font-mono rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">Longitude (-180 to +180)</label>
-                  <input
-                    type="number"
-                    step="any"
-                    required
-                    placeholder="39.6836"
-                    value={locLng}
-                    onChange={(e) => setLocLng(e.target.value)}
-                    className="w-full px-3 py-2 font-mono rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold mb-1">County</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="County name"
-                    value={locCounty}
-                    onChange={(e) => setLocCounty(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">Specific Site / Beach</label>
-                  <input
-                    type="text"
-                    placeholder="Landing beach or reef"
-                    value={locSite}
-                    onChange={(e) => setLocSite(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold mb-1">Directorate</label>
-                  <select
-                    value={locDirId}
-                    onChange={(e) => setLocDirId(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-                  >
-                    {db.directorates.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.code} — {d.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">Ecosystem Context</label>
-                  <select
-                    value={locEco}
-                    onChange={(e) =>
-                      setLocEco(e.target.value as ResearchLocation['ecosystem_type'])
-                    }
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-                  >
-                    <option value="Marine & Coastal">Marine &amp; Coastal</option>
-                    <option value="Freshwater Lake / River">Freshwater Lake / River</option>
-                    <option value="Aquaculture Station">Aquaculture Station</option>
-                    <option value="Socioeconomic Community Site">
-                      Socioeconomic Community Site
-                    </option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-semibold mb-1">Water Body / Marine Area</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Western Indian Ocean EEZ or Lake Victoria"
-                  value={locMarineArea}
-                  onChange={(e) => setLocMarineArea(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="w-full py-2.5 px-4 bg-[#173B75] hover:bg-[#3155A4] text-white font-semibold rounded-lg cursor-pointer transition-colors"
-              >
-                Validate Coordinates &amp; Pin Station
-              </button>
-            </form>
-          </div>
+          )}
 
           {/* Right: Interactive Leaflet Map Canvas */}
           <div className="lg:col-span-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 flex flex-col">

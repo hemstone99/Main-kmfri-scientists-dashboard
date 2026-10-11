@@ -171,10 +171,10 @@ export const SharePointCollaborationHub: React.FC<SharePointCollaborationHubProp
     }
   }, [initialSharedAttachment]);
 
-  // Connect to WebSocket `/ws/collab` for real-time team chat & co-authoring updates
+  // Connect to WebSocket `/ws/collaboration` for real-time team chat & co-authoring updates
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/collab`;
+    const wsUrl = `${protocol}//${window.location.host}/ws/collaboration`;
     let socket: WebSocket | null = null;
 
     try {
@@ -188,10 +188,20 @@ export const SharePointCollaborationHub: React.FC<SharePointCollaborationHubProp
       socket.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          if (data.type === 'CHAT_MESSAGE' && data.payload) {
+          if (
+            (data.type === 'chat:message' || data.type === 'CHAT_MESSAGE') &&
+            (data.message || data.payload)
+          ) {
+            const payload = data.message || data.payload;
+            // Only surface messages from the current user's own directorate
+            // (or institution-wide senders), so scientists never see another
+            // directorate's research chatter.
+            const senderDir = payload.sender_directorate || payload.directorate || 'HQ';
+            const userDir = currentDir?.code || 'HQ';
+            if (senderDir !== userDir && senderDir !== 'HQ') return;
             setChatMessages((prev) => {
-              if (prev.some((m) => m.id === data.payload.id)) return prev;
-              const updated = [...prev, data.payload];
+              if (prev.some((m) => m.id === payload.id)) return prev;
+              const updated = [...prev, payload];
               try {
                 localStorage.setItem(INITIAL_CHAT_STORAGE_KEY, JSON.stringify(updated.slice(-80)));
               } catch {
@@ -199,7 +209,10 @@ export const SharePointCollaborationHub: React.FC<SharePointCollaborationHubProp
               }
               return updated;
             });
-          } else if (data.type === 'DOC_COAUTHOR_UPDATE' && data.payload) {
+          } else if (
+            (data.type === 'document:sync' || data.type === 'DOC_COAUTHOR_UPDATE') &&
+            data.payload
+          ) {
             const { docId, content, updatedBy } = data.payload;
             if (docId === activeDocId && updatedBy !== currentUser.id) {
               setEditorContent(content);

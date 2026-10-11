@@ -40,7 +40,7 @@ export function canAccessNavSection(state: DatabaseState, user: User, section: N
   const accessByRole: Record<RoleName, NavSectionId[]> = {
     scientist: [
       'dashboard', 'profiles', 'projects', 'activities', 'reports', 'outputs',
-      'sharepoint_hub', 'notifications',
+      'sharepoint_hub', 'locations', 'notifications',
     ],
     head_of_directorate: [
       'dashboard', 'scientists', 'profiles', 'projects', 'activities', 'funding',
@@ -66,6 +66,17 @@ export function canAccessNavSection(state: DatabaseState, user: User, section: N
   };
 
   return accessByRole[role].includes(section);
+}
+
+/**
+ * Enforces read-only GIS access for scientists. Scientists may view the
+ * national stations map and browse locations, but only the Head of
+ * Directorate (for their own directorate), Directorate Admin, DG, and
+ * System Administrator may add, edit, or delete georeferenced sites.
+ */
+export function canManageLocations(state: DatabaseState, user: User): boolean {
+  const role = getUserRoleName(state, user);
+  return ['head_of_directorate', 'directorate_admin', 'director_general', 'system_admin'].includes(role);
 }
 
 export function canViewResearcherProfile(

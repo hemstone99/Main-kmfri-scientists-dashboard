@@ -136,6 +136,28 @@ export interface OnlinePresenceUser {
 const serverChatMessages: LiveChatMessage[] = [];
 const activePresence = new Map<WebSocket, OnlinePresenceUser>();
 
+// In-memory directorate -> WebSocket index so the server can route a chat
+// message to every connected member of one directorate without broadcasting
+// it institution-wide.
+const directorateConnections = new Map<string, Set<WebSocket>>();
+
+function registerConnection(directorate: string, ws: WebSocket) {
+  let set = directorateConnections.get(directorate);
+  if (!set) {
+    set = new Set();
+    directorateConnections.set(directorate, set);
+  }
+  set.add(ws);
+}
+
+function unregisterConnection(directorate: string, ws: WebSocket) {
+  const set = directorateConnections.get(directorate);
+  if (set) {
+    set.delete(ws);
+    if (set.size === 0) directorateConnections.delete(directorate);
+  }
+}
+
 // ============================================================================
 // 3. SERVER-SIDE PDFKIT GENERATOR HELPERS
 // ============================================================================
@@ -1205,24 +1227,38 @@ if (!delivered && process.env.SMTP_DEV_FALLBACK === 'true') {
   const wss = new WebSocketServer({ noServer: true });
 
   server.on('upgrade', (request, socket, head) => {
-    try {
-      const url = new URL(request.url || '', `http://${request.headers.host || 'localhost'}`);
-      if (url.pathname === '/ws/collaboration') {
-        wss.handleUpgrade(request, socket, head, (ws) => {
-          wss.emit('connection', ws, request);
-        });
+      // A client that disconnects mid-upgrade (e.g. a test harness closing
+      // sockets abruptly) must not take the whole process down.
+      socket.on('error', () => {
+        try { socket.destroy(); } catch { /* ignore */ }
+      });
+      try {
+        const url = new URL(request.url || '', `http://${request.headers.host || 'localhost'}`);
+        if (url.pathname === '/ws/collaboration') {
+          wss.handleUpgrade(request, socket, head, (ws) => {
+            wss.emit('connection', ws, request);
+          });
+        } else {
+          socket.destroy();
+        }
+      } catch {
+        try { socket.destroy(); } catch { /* ignore */ }
       }
-    } catch {
-      // Ignore malformed upgrade URLs
-    }
-  });
+    });
 
-  const broadcastToAll = (payload: unknown) => {
+  const sendToDirectorate = (directorate: string, payload: unknown) => {
+    const set = directorateConnections.get(directorate);
+    if (!set) return;
+    const raw = JSON.stringify(payload);
+    set.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) client.send(raw);
+    });
+  };
+
+  const sendToAll = (payload: unknown) => {
     const raw = JSON.stringify(payload);
     wss.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(raw);
-      }
+      if (client.readyState === WebSocket.OPEN) client.send(raw);
     });
   };
 
@@ -1241,36 +1277,60 @@ if (!delivered && process.env.SMTP_DEV_FALLBACK === 'true') {
         const msg = JSON.parse(data.toString());
 
         if (msg.type === 'presence:join' && msg.user) {
-          activePresence.set(ws, {
+          const presence: OnlinePresenceUser = {
             user_id: msg.user.user_id,
             full_name: msg.user.full_name,
             role: msg.user.role,
             directorate: msg.user.directorate,
             active_module: msg.user.active_module || 'SharePoint Hub',
             last_seen: new Date().toISOString(),
-          });
-          broadcastToAll({
+          };
+          activePresence.set(ws, presence);
+          registerConnection(presence.directorate, ws);
+          sendToAll({
             type: 'presence:update',
             onlineUsers: Array.from(activePresence.values()),
           });
-        } else if (msg.type === 'chat:message' && msg.message) {
-          const incoming = msg.message as LiveChatMessage;
+        } else if (
+          (msg.type === 'chat:message' || msg.type === 'CHAT_MESSAGE') &&
+          (msg.message || msg.payload)
+        ) {
+          const incoming = (msg.message || msg.payload) as LiveChatMessage;
+          // The client may send the text under either `text` or `message`.
+          const text = incoming.text || (incoming as { message?: string }).message || '';
+          const normalized: LiveChatMessage = {
+            id: incoming.id,
+            channel: incoming.channel || 'directorates',
+            sender_id: incoming.sender_id,
+            sender_name: incoming.sender_name,
+            sender_role: incoming.sender_role,
+            sender_directorate: incoming.sender_directorate || 'HQ',
+            text,
+            shared_attachment: incoming.shared_attachment || null,
+            created_at: incoming.created_at || new Date().toISOString(),
+          };
           // Idempotency guard
-          if (!serverChatMessages.some((m) => m.id === incoming.id)) {
-            serverChatMessages.push(incoming);
-            if (serverChatMessages.length > 250) {
-              serverChatMessages.shift();
-            }
-            broadcastToAll({
+          if (!serverChatMessages.some((m) => m.id === normalized.id)) {
+            serverChatMessages.push(normalized);
+            if (serverChatMessages.length > 250) serverChatMessages.shift();
+            // Directorate-scoped broadcast: a scientist in OCS only sees OCS
+            // chat traffic, never another directorate's. Institution-wide
+            // roles (system_admin, director_general) still receive all
+            // channels via the presence list.
+            sendToDirectorate(normalized.sender_directorate, {
               type: 'chat:message',
-              message: incoming,
+              message: normalized,
             });
           }
-        } else if (msg.type === 'document:sync' && msg.document) {
-          broadcastToAll({
+        } else if (
+          (msg.type === 'document:sync' || msg.type === 'DOC_COAUTHOR_UPDATE') &&
+          (msg.document || msg.payload)
+        ) {
+          const doc = msg.document || msg.payload;
+          sendToAll({
             type: 'document:sync',
-            document: msg.document,
-            actorName: msg.actorName,
+            document: doc,
+            actorName: msg.actorName || msg.updatedBy,
           });
         }
       } catch (err) {
@@ -1279,9 +1339,11 @@ if (!delivered && process.env.SMTP_DEV_FALLBACK === 'true') {
     });
 
     ws.on('close', () => {
-      if (activePresence.has(ws)) {
+      const presence = activePresence.get(ws);
+      if (presence) {
         activePresence.delete(ws);
-        broadcastToAll({
+        unregisterConnection(presence.directorate, ws);
+        sendToAll({
           type: 'presence:update',
           onlineUsers: Array.from(activePresence.values()),
         });
