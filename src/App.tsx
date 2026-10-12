@@ -81,7 +81,6 @@ import {
   GraduationCap,
   Database,
   ChevronDown,
-  CircleHelp,
 } from 'lucide-react';
 
 interface SidebarNavItem {
@@ -189,15 +188,12 @@ export default function App() {
   const [globalSearch, setGlobalSearch] = useState('');
   const [searchDropdownOpen, setSearchDropdownOpen] = useState(false);
   const [triggerNewProjectModal, setTriggerNewProjectModal] = useState(false);
-  const [triggerNewResourceModal, setTriggerNewResourceModal] = useState(false);
-  const [triggerNewTaskForm, setTriggerNewTaskForm] = useState(false);
   const [pendingChatShare, setPendingChatShare] = useState<{
     type: 'document' | 'publication';
     id: string;
     title: string;
     subtitle: string;
   } | null>(null);
-  const [selectedResourceDocumentId, setSelectedResourceDocumentId] = useState<string | null>(null);
 
   useEffect(() => {
     if (darkMode) {
@@ -352,66 +348,39 @@ export default function App() {
           />
         )}
 
-        {roleName === 'scientist' && (
-          <aside aria-label="KMFRI workspace shortcuts" className="fixed inset-y-0 left-0 z-40 hidden w-16 flex-col items-center border-r border-white/10 bg-[#071B31] py-3 text-slate-300 lg:flex">
-            <button type="button" onClick={() => setActiveSection('dashboard')} title="KMFRI Research Workspace" className="mb-5 grid h-10 w-10 place-items-center rounded-lg bg-white/5">
-              <KmfriLogo compact={true} iconOnly={true} />
-            </button>
-            <div className="flex flex-1 flex-col items-center gap-2">
-              {[
-                { id: 'dashboard' as NavSectionId, icon: LayoutDashboard, label: 'Dashboard' },
-                { id: 'projects' as NavSectionId, icon: FolderKanban, label: 'Projects' },
-                { id: 'activities' as NavSectionId, icon: Activity, label: 'Fieldwork' },
-                { id: 'calendar' as NavSectionId, icon: CalendarDays, label: 'Calendar & Tasks' },
-              ].map((shortcut) => {
-                const Icon = shortcut.icon;
-                return <button key={shortcut.id} type="button" onClick={() => setActiveSection(shortcut.id)} title={shortcut.label} className={`grid h-10 w-10 place-items-center rounded-lg transition-colors ${activeSection === shortcut.id ? 'bg-teal-600 text-white' : 'text-slate-400 hover:bg-white/10 hover:text-white'}`}><Icon className="h-4 w-4" /></button>;
-              })}
-              <button type="button" onClick={() => { setTriggerNewProjectModal(true); setActiveSection('projects'); }} title="Create a research project" className="mt-1 grid h-10 w-10 place-items-center rounded-full border border-white/15 text-slate-300 hover:bg-white/10 hover:text-white"><Plus className="h-4 w-4" /></button>
-            </div>
-            <div className="flex flex-col items-center gap-2 border-t border-white/10 pt-3">
-              <button type="button" onClick={() => setActiveSection('notifications')} title={`Notifications${unreadNotificationsCount ? ` (${unreadNotificationsCount} unread)` : ''}`} className="relative grid h-10 w-10 place-items-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-white"><Bell className="h-4 w-4" />{unreadNotificationsCount > 0 && <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-amber-400" />}</button>
-              <button type="button" onClick={() => setActiveSection('sharepoint_hub')} title="Research collaboration help" className="grid h-10 w-10 place-items-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-white"><CircleHelp className="h-4 w-4" /></button>
-              <button type="button" onClick={() => setActiveSection('profiles')} title={`${currentUser.full_name} · My Profile`} className="mt-1 grid h-9 w-9 place-items-center overflow-hidden rounded-full border border-teal-400/70 bg-teal-700 text-xs font-bold text-white">{currentUser.profile_photo ? <img src={currentUser.profile_photo} alt="" className="h-full w-full object-cover" /> : currentUser.full_name.split(' ').map((part) => part[0]).slice(0, 2).join('')}</button>
-              <button type="button" onClick={() => setSidebarCollapsed((collapsed) => !collapsed)} title={sidebarCollapsed ? 'Expand workspace navigation' : 'Collapse workspace navigation'} className="mt-1 grid h-8 w-8 place-items-center rounded text-slate-500 hover:bg-white/10 hover:text-white">{sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}</button>
-            </div>
-          </aside>
-        )}
-
         {/* Permission-Aware Collapsible Sidebar (Slide-over Drawer on Mobile/Tablet, Fixed Flex on Desktop) */}
         <aside
           className={`fixed inset-y-0 left-0 z-50 lg:static lg:z-auto ${
             mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
           } ${
-            sidebarCollapsed ? (roleName === 'scientist' ? 'lg:w-0 w-72' : 'lg:w-18 w-72') : 'w-72 lg:w-64'
-            } ${roleName === 'scientist' ? 'lg:ml-16' : ''} shrink-0 bg-[#0A2540] dark:bg-[#061527] text-slate-200 border-r border-slate-800 flex flex-col justify-between transition-all duration-200 shadow-2xl lg:shadow-none`}
+            sidebarCollapsed ? 'lg:w-18 w-72' : 'w-72 lg:w-64'
+          } shrink-0 bg-[#0A2540] dark:bg-[#061527] text-slate-200 border-r border-slate-800 flex flex-col justify-between transition-all duration-200 shadow-2xl lg:shadow-none`}
         >
-            <div className={roleName === 'scientist' && sidebarCollapsed ? 'lg:hidden' : ''}>
+          <div>
             {/* Sidebar Brand Header with Official KMFRI Logo */}
             <div className="h-16 px-3.5 flex items-center justify-between border-b border-white/10">
-              {roleName === 'scientist' ? (
-                <button type="button" onClick={() => setActiveSection('dashboard')} className="min-w-0 flex-1 overflow-hidden text-left" title="KMFRI Research Workspace">
-                  <span className={`block truncate text-sm font-bold text-white ${sidebarCollapsed ? 'lg:hidden' : ''}`}>KMFRI Research</span>
-                  <span className={`mt-0.5 block truncate text-[10px] font-mono text-teal-300 ${sidebarCollapsed ? 'lg:hidden' : ''}`}>{currentDirectorate?.code || 'HQ'} · {currentDirectorate?.name || 'Institutional workspace'}</span>
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveSection('dashboard');
-                    setMobileMenuOpen(false);
-                  }}
-                  className="flex items-center gap-2.5 overflow-hidden text-left cursor-pointer focus:outline-none"
-                  title="KMFRI Dashboard"
-                >
-                  {sidebarCollapsed ? (
-                    <>
-                      <div className="hidden lg:block"><KmfriLogo compact={true} iconOnly={true} /></div>
-                      <div className="lg:hidden"><KmfriLogo compact={true} showSubtitle={true} variant="dark" /></div>
-                    </>
-                  ) : <KmfriLogo compact={true} showSubtitle={true} variant="dark" />}
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveSection('dashboard');
+                  setMobileMenuOpen(false);
+                }}
+                className="flex items-center gap-2.5 overflow-hidden text-left cursor-pointer focus:outline-none"
+                title="KMFRI Dashboard"
+              >
+                {sidebarCollapsed ? (
+                  <>
+                    <div className="hidden lg:block">
+                      <KmfriLogo compact={true} iconOnly={true} />
+                    </div>
+                    <div className="lg:hidden">
+                      <KmfriLogo compact={true} showSubtitle={true} variant="dark" />
+                    </div>
+                  </>
+                ) : (
+                  <KmfriLogo compact={true} showSubtitle={true} variant="dark" />
+                )}
+              </button>
 
               {/* Desktop Collapse Toggle */}
               <button
@@ -498,7 +467,7 @@ export default function App() {
             </nav>
           </div>
 
-          <div className={`p-3 border-t border-white/10 ${roleName === 'scientist' && sidebarCollapsed ? 'lg:hidden' : ''}`}>
+          <div className="p-3 border-t border-white/10">
             <button
               type="button"
               onClick={handleSignOut}
@@ -843,18 +812,6 @@ export default function App() {
                       setActiveSection('projects');
                     }}
                     onQuickCreateLocation={() => setActiveSection('locations')}
-                    onOpenDocument={(documentId) => {
-                      setSelectedResourceDocumentId(documentId);
-                      setActiveSection('research_data');
-                    }}
-                    onQuickCreateResource={() => {
-                      setTriggerNewResourceModal(true);
-                      setActiveSection('research_data');
-                    }}
-                    onQuickCreateTask={() => {
-                      setTriggerNewTaskForm(true);
-                      setActiveSection('calendar');
-                    }}
                   />
                 )}
 
@@ -884,8 +841,6 @@ export default function App() {
                       currentUser={currentUser}
                       onUpdateDb={handleUpdateDb}
                       onNavigate={setActiveSection}
-                      openTaskInitially={triggerNewTaskForm}
-                      onClearInitialTask={() => setTriggerNewTaskForm(false)}
                     />
                   ) : (
                     <TrainingDevelopmentView
@@ -926,9 +881,6 @@ export default function App() {
                     initialSharedAttachment={pendingChatShare}
                     onClearSharedAttachment={() => setPendingChatShare(null)}
                     initialTab={activeSection === 'research_data' ? 'drive' : 'word_studio'}
-                    initialDocumentId={activeSection === 'research_data' ? selectedResourceDocumentId : null}
-                    openCreateInitially={activeSection === 'research_data' && triggerNewResourceModal}
-                    onClearInitialCreate={() => setTriggerNewResourceModal(false)}
                   />
                 )}
 

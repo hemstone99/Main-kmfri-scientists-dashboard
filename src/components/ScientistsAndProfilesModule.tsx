@@ -28,6 +28,7 @@ import {
   GraduationCap,
   MapPin,
   Fingerprint,
+  Lock,
 } from 'lucide-react';
 
 interface ScientistsAndProfilesModuleProps {
@@ -108,13 +109,17 @@ export const ScientistsAndProfilesModule: React.FC<ScientistsAndProfilesModulePr
   const [editExpertise, setEditExpertise] = useState(activeProfile?.areas_of_expertise || '');
   const [editProfilePhone, setEditProfilePhone] = useState(activeProfile?.phone || currentUser.phone);
   const [editYearsExperience, setEditYearsExperience] = useState(activeProfile?.years_experience || 0);
+  // Editing is locked until the profile has been saved at least once, so a
+  // scientist must complete their profile before it can be modified.
+  const [profileSaved, setProfileSaved] = useState(false);
+  const [editing, setEditing] = useState(false);
 
-  // SMTP 2FA Password Change state
-  const [twoFaSending, setTwoFaSending] = useState(false);
-  const [twoFaSent, setTwoFaSent] = useState(false);
-  const [twoFaCode, setTwoFaCode] = useState('');
-  const [changePwdValue, setChangePwdValue] = useState('');
-  const [showChangePwd, setShowChangePwd] = useState(false);
+  // A brand-new scientist with no profile record yet starts unlocked so they
+  // can complete the initial save; after that, edits require explicitly
+  // unlocking the form.
+  const editable = !profileSaved || editing;
+  const showEditButton =
+    selectedUserId === currentUser.id || ['system_admin', 'directorate_admin'].includes(roleName);
 
   React.useEffect(() => {
     const prof = db.researcher_profiles.find((p) => p.user_id === selectedUserId);
@@ -129,6 +134,12 @@ export const ScientistsAndProfilesModule: React.FC<ScientistsAndProfilesModulePr
       setEditExpertise(prof.areas_of_expertise);
       setEditProfilePhone(prof.phone || currentUser.phone);
       setEditYearsExperience(prof.years_experience || 0);
+      // Editing is locked once a profile has been saved. A scientist with no
+      // profile record yet starts unlocked so they can complete the initial
+      // save; after that, edits require explicitly unlocking the form.
+      setProfileSaved(true);
+    } else {
+      setProfileSaved(false);
     }
   }, [selectedUserId, db.researcher_profiles, currentUser.phone]);
 
@@ -342,121 +353,8 @@ export const ScientistsAndProfilesModule: React.FC<ScientistsAndProfilesModulePr
 
     onUpdateDb(nextState);
     setFeedbackMsg({ type: 'ok', text: 'Researcher academic profile updated and logged.' });
-  };
-
-  const handleSend2FaForProfile = async (targetUser: User) => {
-    setTwoFaSending(true);
-    setFeedbackMsg(null);
-    try {
-      const resp = await fetch('/api/auth/send-2fa-code', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: targetUser.email,
-          fullName: targetUser.full_name,
-          staffNumber: targetUser.staff_number,
-          purpose: 'Password Reset 2FA Verification',
-        }),
-      });
-      const data = await resp.json();
-      if (!resp.ok) {
-        throw new Error(data.error || 'Failed to send 2FA verification email.');
-      }
-      setTwoFaSent(true);
-      setTwoFaCode('');
-      setFeedbackMsg({
-        type: 'ok',
-        text:
-          data.message ||
-          `6-digit 2FA verification code sent via SMTP to ${targetUser.email}.`,
-      });
-    } catch (err) {
-      setFeedbackMsg({
-        type: 'err',
-        text: err instanceof Error ? err.message : 'Failed to send 2FA email.',
-      });
-    } finally {
-      setTwoFaSending(false);
-    }
-  };
-
-  const handleVerify2FaAndChangePassword = async (e: React.FormEvent, targetUser: User) => {
-    e.preventDefault();
-    setFeedbackMsg(null);
-    if (changePwdValue.length < 8) {
-      setFeedbackMsg({
-        type: 'err',
-        text: 'New password must be at least 8 characters.',
-      });
-      return;
-    }
-    if (!twoFaCode.trim()) {
-      setFeedbackMsg({
-        type: 'err',
-        text: 'Please enter the 6-digit 2FA verification code sent to your email.',
-      });
-      return;
-    }
-
-    try {
-      const resp = await fetch('/api/auth/verify-2fa-code', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: targetUser.email,
-          code: twoFaCode.trim(),
-        }),
-      });
-      const data = await resp.json();
-      if (!resp.ok || !data.verified) {
-        setFeedbackMsg({
-          type: 'err',
-          text: data.error || 'Invalid or expired 6-digit 2FA verification code.',
-        });
-        return;
-      }
-
-      const now = new Date().toISOString();
-      const newHash = await hashPasswordAsync(changePwdValue);
-      let nextState: DatabaseState = {
-        ...db,
-        users: db.users.map((u) =>
-          u.id === targetUser.id
-            ? {
-                ...u,
-                password_hash: newHash,
-                failed_login_attempts: 0,
-                account_status: 'Active',
-                updated_at: now,
-              }
-            : u
-        ),
-      };
-
-      nextState = appendAuditLog(
-        nextState,
-        currentUser,
-        'PASSWORD_CHANGED_WITH_SMTP_2FA',
-        'users',
-        targetUser.id,
-        null,
-        { email: targetUser.email, verified_2fa: true }
-      );
-
-      onUpdateDb(nextState);
-      setTwoFaCode('');
-      setChangePwdValue('');
-      setTwoFaSent(false);
-      setFeedbackMsg({
-        type: 'ok',
-        text: `2FA verified! Password for ${targetUser.full_name} (${targetUser.email}) has been updated.`,
-      });
-    } catch (err) {
-      setFeedbackMsg({
-        type: 'err',
-        text: err instanceof Error ? err.message : 'Failed to verify 2FA code.',
-      });
-    }
+    setEditing(false);
+    setProfileSaved(true);
   };
 
   const handleAdminDeleteUser = (targetUser: User) => {
@@ -838,191 +736,125 @@ export const ScientistsAndProfilesModule: React.FC<ScientistsAndProfilesModulePr
             <div className="sm:col-span-2"><span className="text-slate-500 block">Areas of expertise</span><span className="font-medium">{activeProfile?.areas_of_expertise || 'Not provided'}</span></div>
           </div>
 
-          <form onSubmit={handleUpdateProfile} className="space-y-3 text-xs">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Academic Rank / Title
-                </label>
-                <input
-                  type="text"
-                  value={editRank}
-                  onChange={(e) => setEditRank(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-                />
-              </div>
-              <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  ORCID Identifier
-                </label>
-                <input
-                  type="text"
-                  placeholder="0000-0000-0000-0000"
-                  value={editOrcid}
-                  onChange={(e) => setEditOrcid(e.target.value)}
-                  className="w-full px-3 py-1.5 font-mono rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Specialization & Research Domain
-              </label>
-              <input
-                type="text"
-                value={editSpec}
-                onChange={(e) => setEditSpec(e.target.value)}
-                className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-              />
-            </div>
-
-            <div>
-              <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Academic Qualifications
-              </label>
-              <input
-                type="text"
-                value={editQual}
-                onChange={(e) => setEditQual(e.target.value)}
-                className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Areas of Expertise</label>
-                <input type="text" value={editExpertise} onChange={(e) => setEditExpertise(e.target.value)} className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800" />
-              </div>
-              <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Years of Experience</label>
-                <input type="number" min="0" value={editYearsExperience} onChange={(e) => setEditYearsExperience(Number(e.target.value))} className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800" />
-              </div>
-              <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Contact Phone</label>
-                <input type="text" value={editProfilePhone} onChange={(e) => setEditProfilePhone(e.target.value)} className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800" />
-              </div>
-            </div>
-
-            <div>
-              <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Office & Station Location
-              </label>
-              <input
-                type="text"
-                value={editOffice}
-                onChange={(e) => setEditOffice(e.target.value)}
-                className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-              />
-            </div>
-
-            <div>
-              <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Biography & Institutional Contributions
-              </label>
-              <textarea
-                rows={3}
-                value={editBio}
-                onChange={(e) => setEditBio(e.target.value)}
-                className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-              />
-            </div>
-
-            {(selectedUserId === currentUser.id ||
-              ['system_admin', 'directorate_admin'].includes(roleName)) && (
-              <button
-                type="submit"
-                className="w-full py-2 px-4 bg-[#0A2540] hover:bg-slate-800 text-white font-semibold rounded-lg flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <Edit3 className="w-3.5 h-3.5" />
-                <span>Save Permitted Profile Fields</span>
-              </button>
-            )}
-          </form>
-
-          {/* SMTP 2FA Password Reset & Security Section */}
-          {(selectedUserId === currentUser.id || roleName === 'system_admin') && (
-            <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3 text-xs">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                    <KeyRound className="w-3.5 h-3.5 text-[#159A9C]" />
-                    <span>Change Password (SMTP Email 2FA Verification)</span>
-                  </h3>
-                  <p className="text-[11px] text-slate-500">
-                    Sends a 6-digit 2FA verification code to{' '}
-                    <span className="font-mono font-semibold">{inspectedUser.email}</span> before
-                    resetting password.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  disabled={twoFaSending}
-                  onClick={() => handleSend2FaForProfile(inspectedUser)}
-                  className="px-3 py-1.5 rounded-lg bg-[#159A9C] hover:bg-teal-700 text-white font-semibold flex items-center gap-1.5 shrink-0 cursor-pointer disabled:opacity-50"
-                >
-                  <Mail className="w-3.5 h-3.5" />
-                  <span>
-                    {twoFaSending
-                      ? 'Sending 2FA...'
-                      : twoFaSent
-                      ? 'Resend 2FA Code'
-                      : 'Send 2FA Code'}
-                  </span>
-                </button>
-              </div>
-
-              <form
-                onSubmit={(e) => handleVerify2FaAndChangePassword(e, inspectedUser)}
-                className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1"
-              >
+          {editable ? (
+            <form onSubmit={handleUpdateProfile} className="space-y-3 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    6-Digit Email 2FA Code
+                    Academic Rank / Title
                   </label>
                   <input
                     type="text"
-                    required
-                    maxLength={6}
-                    placeholder="123456"
-                    value={twoFaCode}
-                    onChange={(e) => setTwoFaCode(e.target.value)}
-                    className="w-full px-3 py-1.5 font-mono tracking-widest rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                    value={editRank}
+                    onChange={(e) => setEditRank(e.target.value)}
+                    className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
                   />
                 </div>
                 <div>
                   <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    New Password (8+ chars)
+                    ORCID Identifier
                   </label>
-                  <div className="relative">
-                    <input
-                      type={showChangePwd ? 'text' : 'password'}
-                      required
-                      minLength={8}
-                      placeholder="New strong password"
-                      value={changePwdValue}
-                      onChange={(e) => setChangePwdValue(e.target.value)}
-                      className="w-full px-3 pr-8 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowChangePwd(!showChangePwd)}
-                      className="absolute right-2 top-2 text-slate-400 hover:text-slate-700 cursor-pointer"
-                    >
-                      {showChangePwd ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
+                  <input
+                    type="text"
+                    placeholder="0000-0000-0000-0000"
+                    value={editOrcid}
+                    onChange={(e) => setEditOrcid(e.target.value)}
+                    className="w-full px-3 py-1.5 font-mono rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                  />
                 </div>
-                <div className="sm:col-span-2">
-                  <button
-                    type="submit"
-                    className="w-full py-2 px-4 bg-[#173B75] hover:bg-[#3155A4] text-white font-semibold rounded-lg flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <ShieldCheck className="w-3.5 h-3.5" />
-                    <span>Verify 2FA Code &amp; Reset Password</span>
-                  </button>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Specialization & Research Domain
+                </label>
+                <input
+                  type="text"
+                  value={editSpec}
+                  onChange={(e) => setEditSpec(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Academic Qualifications
+                </label>
+                <input
+                  type="text"
+                  value={editQual}
+                  onChange={(e) => setEditQual(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Areas of Expertise</label>
+                  <input type="text" value={editExpertise} onChange={(e) => setEditExpertise(e.target.value)} className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800" />
                 </div>
-              </form>
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Years of Experience</label>
+                  <input type="number" min="0" value={editYearsExperience} onChange={(e) => setEditYearsExperience(Number(e.target.value))} className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800" />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Contact Phone</label>
+                  <input type="text" value={editProfilePhone} onChange={(e) => setEditProfilePhone(e.target.value)} className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Office & Station Location
+                </label>
+                <input
+                  type="text"
+                  value={editOffice}
+                  onChange={(e) => setEditOffice(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Biography & Institutional Contributions
+                </label>
+                <textarea
+                  rows={3}
+                  value={editBio}
+                  onChange={(e) => setEditBio(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                />
+              </div>
+
+              {showEditButton && (
+                <button
+                  type="submit"
+                  className="w-full py-2 px-4 bg-[#0A2540] hover:bg-slate-800 text-white font-semibold rounded-lg flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  <span>Save Permitted Profile Fields</span>
+                </button>
+              )}
+            </form>
+          ) : (
+            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 space-y-3">
+              <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
+                <Lock className="w-4 h-4 shrink-0" />
+                <span className="text-xs font-semibold">
+                  Profile editing is locked. Complete your profile first, then enable editing to make changes.
+                </span>
+              </div>
+              {showEditButton && (
+                <button
+                  type="button"
+                  onClick={() => setEditing(true)}
+                  className="w-full py-2 px-4 bg-[#173B75] hover:bg-[#3155A4] text-white font-semibold rounded-lg flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  <span>Enable Editing</span>
+                </button>
+              )}
             </div>
           )}
         </div>
