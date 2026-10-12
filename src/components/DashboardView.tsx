@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Chart,
   BarController,
@@ -27,7 +27,7 @@ import {
   filterReportsForUser,
   NavSectionId,
 } from '../services/rbacPolicy.ts';
-import { getDirectorateById, getUserById } from '../services/database.ts';
+import { getDirectorateById, getUserById, getTimeOfDayGreeting } from '../services/database.ts';
 import { addKenyaBordersOverlay } from '../services/kenyaGeoJson.ts';
 import { exportServerPdf } from '../services/exportService.ts';
 import { ScientistDashboardWorkspace } from './ScientistDashboardWorkspace.tsx';
@@ -727,6 +727,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     />;
   }
 
+  const greeting = useMemo(
+    () => getTimeOfDayGreeting(currentUser.last_login),
+    [currentUser.last_login]
+  );
+
   return (
     <div className="space-y-6">
       {/* Executive Institutional Welcome Banner */}
@@ -752,7 +757,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </span>
             </div>
             <h1 className="text-xl sm:text-2xl font-extrabold font-display tracking-tight">
-              Welcome back, {currentUser.full_name}
+              {greeting}, {currentUser.full_name}
             </h1>
             <p className="text-xs sm:text-sm text-sky-100/90 max-w-3xl leading-relaxed">
               {roleHeaderTitle[roleName] || 'KMFRI Institutional Research Dashboard'} — Your

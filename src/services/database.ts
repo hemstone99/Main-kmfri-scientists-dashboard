@@ -686,3 +686,38 @@ export function appendAuditLog(
     audit_logs: [entry, ...state.audit_logs],
   };
 }
+
+/**
+ * Returns a time-of-day greeting ("Good morning", "Good afternoon", or "Good evening")
+ * based on the user's sign-in timestamp (or current time if no timestamp is provided).
+ * Uses Kenya timezone (UTC+3) since KMFRI is headquartered in Mombasa, Kenya.
+ * - 05:00 - 11:59: Good morning
+ * - 12:00 - 16:59: Good afternoon
+ * - 17:00 - 04:59: Good evening
+ */
+export function getTimeOfDayGreeting(loginTimestamp?: string | null): string {
+  let date: Date | null = null;
+
+  if (loginTimestamp && typeof loginTimestamp === 'string') {
+    const normalized = loginTimestamp.includes(' ') && !loginTimestamp.includes('T')
+      ? loginTimestamp.replace(' ', 'T')
+      : loginTimestamp;
+    const parsed = new Date(normalized);
+    if (!isNaN(parsed.getTime())) {
+      date = parsed;
+    }
+  }
+
+  if (!date) {
+    date = new Date();
+  }
+
+  const kenyaHours = (date.getUTCHours() + 3) % 24;
+  if (kenyaHours >= 5 && kenyaHours < 12) {
+    return 'Good morning';
+  }
+  if (kenyaHours >= 12 && kenyaHours < 17) {
+    return 'Good afternoon';
+  }
+  return 'Good evening';
+}

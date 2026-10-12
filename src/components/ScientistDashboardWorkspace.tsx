@@ -25,7 +25,7 @@ import {
   filterReportsForUser,
   NavSectionId,
 } from '../services/rbacPolicy.ts';
-import { getDirectorateById } from '../services/database.ts';
+import { getDirectorateById, getTimeOfDayGreeting } from '../services/database.ts';
 
 interface ScientistDashboardWorkspaceProps {
   db: DatabaseState;
@@ -61,6 +61,15 @@ const relativeLabel = (value: string) => {
 };
 const resourceTitle = (resource: DatabaseState['documents'][number]) =>
   (resource as typeof resource & { title?: string }).title || resource.name || resource.original_filename;
+const getFirstName = (fullName: string): string => {
+  if (!fullName) return 'Colleague';
+  const trimmed = fullName.trim();
+  const parts = trimmed.split(/\s+/);
+  if (parts.length > 1 && /^(dr\.?|prof\.?|mr\.?|mrs\.?|ms\.?|eng\.?)/i.test(parts[0])) {
+    return parts[1];
+  }
+  return parts[0] || 'Colleague';
+};
 
 export const ScientistDashboardWorkspace: React.FC<ScientistDashboardWorkspaceProps> = ({
   db,
@@ -72,6 +81,14 @@ export const ScientistDashboardWorkspace: React.FC<ScientistDashboardWorkspacePr
   onOpenDocument,
 }) => {
   const directorate = getDirectorateById(db, currentUser.directorate_id);
+  const greeting = useMemo(
+    () => getTimeOfDayGreeting(currentUser.last_login),
+    [currentUser.last_login]
+  );
+  const firstName = useMemo(
+    () => getFirstName(currentUser.full_name),
+    [currentUser.full_name]
+  );
   const assignedProjects = filterProjectsForUser(db, currentUser).filter((project) =>
     project.principal_investigator_id === currentUser.id ||
     project.created_by === currentUser.id ||
@@ -197,8 +214,8 @@ export const ScientistDashboardWorkspace: React.FC<ScientistDashboardWorkspacePr
       <header className="flex flex-col gap-4 border-b border-slate-200 pb-4 dark:border-slate-800 xl:flex-row xl:items-center xl:justify-between">
         <div className="min-w-0">
           <p className="text-xs font-semibold text-teal-800 dark:text-teal-300">KMFRI SCIENTIFIC WORKSPACE · {directorate?.code || 'HQ'}</p>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Good morning, {currentUser.full_name.split(' ')[0]}</h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{directorate?.name || 'Research and professional workspace'}</p>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 dark:text-white">{greeting}, {firstName}</h1>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Welcome back to your {directorate?.name || 'research and professional workspace'}.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <label className="relative min-w-0 flex-1 sm:flex-none">
