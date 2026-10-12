@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from 'react';
-import { DatabaseState, User } from '../types/kmfri.ts';
-import { appendAuditLog } from '../services/database.ts';
+import React, { useEffect, useMemo, useState } from 'react';
+import { DatabaseState, ProjectMilestone, User } from '../types/kmfri.ts';
+import { appendAuditLog, generateUuid } from '../services/database.ts';
 import {
   filterProjectsForUser,
   filterReportsForUser,
@@ -14,6 +14,8 @@ interface WorkspaceViewProps {
   currentUser: User;
   onUpdateDb: (next: DatabaseState) => void;
   onNavigate: (section: NavSectionId) => void;
+  openTaskInitially?: boolean;
+  onClearInitialTask?: () => void;
 }
 
 type AgendaItem = {
@@ -34,9 +36,16 @@ export const CalendarTasksView: React.FC<WorkspaceViewProps> = ({
   currentUser,
   onUpdateDb,
   onNavigate,
+  openTaskInitially = false,
+  onClearInitialTask,
 }) => {
   const [range, setRange] = useState<'upcoming' | 'overdue' | 'all'>('upcoming');
   const [search, setSearch] = useState('');
+  const [showTaskForm, setShowTaskForm] = useState(openTaskInitially);
+  const [taskTitle, setTaskTitle] = useState('');
+  const [taskDate, setTaskDate] = useState('');
+  const [taskProjectId, setTaskProjectId] = useState('');
+  const [taskFeedback, setTaskFeedback] = useState<string | null>(null);
   const roleName = getUserRoleName(db, currentUser);
   const accessibleProjects = filterProjectsForUser(db, currentUser).filter((project) =>
     roleName !== 'scientist' ||
@@ -46,6 +55,51 @@ export const CalendarTasksView: React.FC<WorkspaceViewProps> = ({
   );
   const projectIds = new Set(accessibleProjects.map((project) => project.id));
   const projectTitle = new Map(accessibleProjects.map((project) => [project.id, project.title]));
+  const projectForTask = taskProjectId || accessibleProjects[0]?.id || '';
+
+  useEffect(() => {
+    if (openTaskInitially) {
+      setShowTaskForm(true);
+      onClearInitialTask?.();
+    }
+  }, [openTaskInitially, onClearInitialTask]);
+
+  const createTask = (event: React.FormEvent) => {
+    event.preventDefault();
+    const project = accessibleProjects.find((item) => item.id === projectForTask);
+    if (!project || !taskTitle.trim() || !taskDate) {
+      setTaskFeedback('Choose an assigned project and provide a task title and due date.');
+      return;
+    }
+    const now = new Date().toISOString();
+    const milestone: ProjectMilestone = {
+      id: generateUuid(),
+      project_id: project.id,
+      title: taskTitle.trim(),
+      description: 'Research task created from Calendar & Tasks.',
+      deliverables: 'Task completion update',
+      responsible_user_id: currentUser.id,
+      due_date: taskDate,
+      completion_date: null,
+      status: 'Pending',
+      progress: 0,
+      created_at: now,
+    };
+    let nextState: DatabaseState = {
+      ...db,
+      project_milestones: [...db.project_milestones, milestone],
+    };
+    nextState = appendAuditLog(nextState, currentUser, 'RESEARCH_TASK_CREATED', 'project_milestones', milestone.id, null, {
+      title: milestone.title,
+      project_id: project.id,
+      due_date: milestone.due_date,
+    });
+    onUpdateDb(nextState);
+    setTaskTitle('');
+    setTaskDate('');
+    setTaskFeedback('Task added to your project calendar.');
+    setShowTaskForm(false);
+  };
 
   const agenda = useMemo<AgendaItem[]>(() => {
     const milestones: AgendaItem[] = db.project_milestones
@@ -126,8 +180,11 @@ export const CalendarTasksView: React.FC<WorkspaceViewProps> = ({
           <h1 className="mt-1 text-2xl font-bold">Calendar &amp; Tasks</h1>
           <p className="mt-1 text-sm text-slate-500">Milestones, report deadlines, and planned research activities in your authorized scope.</p>
         </div>
-        <button type="button" onClick={() => onNavigate('activities')} className="rounded-md bg-[#123B4A] px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-800">Plan an activity</button>
+        <div className="flex gap-2"><button type="button" onClick={() => onNavigate('activities')} className="rounded-md border border-slate-300 px-4 py-2.5 text-sm font-semibold hover:border-teal-500">Plan an activity</button><button type="button" onClick={() => { setTaskFeedback(null); setShowTaskForm((shown) => !shown); }} disabled={accessibleProjects.length === 0} className="rounded-md bg-[#123B4A] px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-50">New task</button></div>
       </header>
+
+      {showTaskForm && <form onSubmit={createTask} className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 sm:grid-cols-[1fr_1.4fr_1fr_auto] sm:items-end"><label className="space-y-1 text-xs"><span className="font-semibold">Project</span><select value={projectForTask} onChange={(event) => setTaskProjectId(event.target.value)} className="w-full rounded-md border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-700">{accessibleProjects.map((project) => <option key={project.id} value={project.id}>{project.project_code} · {project.title}</option>)}</select></label><label className="space-y-1 text-xs"><span className="font-semibold">Task</span><input required value={taskTitle} onChange={(event) => setTaskTitle(event.target.value)} placeholder="Describe the research action" className="w-full rounded-md border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-700" /></label><label className="space-y-1 text-xs"><span className="font-semibold">Due date</span><input required type="date" value={taskDate} onChange={(event) => setTaskDate(event.target.value)} className="w-full rounded-md border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-700" /></label><button type="submit" className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-semibold text-white">Add task</button></form>}
+      {taskFeedback && <p role="status" className="text-xs text-teal-800 dark:text-teal-300">{taskFeedback}</p>}
 
       <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4"><div className="text-xs text-slate-500">Upcoming work</div><div className="mt-2 text-2xl font-bold font-mono">{agenda.filter((item) => item.date >= today() && !item.completed).length}</div></div>

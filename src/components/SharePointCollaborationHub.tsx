@@ -54,6 +54,9 @@ interface SharePointCollaborationHubProps {
   } | null;
   onClearSharedAttachment?: () => void;
   initialTab?: 'drive' | 'word_studio' | 'imagery';
+  initialDocumentId?: string | null;
+  openCreateInitially?: boolean;
+  onClearInitialCreate?: () => void;
 }
 
 const DEFAULT_LIBRARIES = [
@@ -73,6 +76,9 @@ export const SharePointCollaborationHub: React.FC<SharePointCollaborationHubProp
   initialSharedAttachment,
   onClearSharedAttachment,
   initialTab = 'drive',
+  initialDocumentId,
+  openCreateInitially = false,
+  onClearInitialCreate,
 }) => {
   const roleName = getUserRoleName(db, currentUser);
   const currentDir = getDirectorateById(db, currentUser.directorate_id);
@@ -86,7 +92,11 @@ export const SharePointCollaborationHub: React.FC<SharePointCollaborationHubProp
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
   // Currently active document in Word Co-Authoring Studio
-  const [activeDocId, setActiveDocId] = useState<string>(visibleDocuments[0]?.id || '');
+  const [activeDocId, setActiveDocId] = useState<string>(
+    visibleDocuments.some((document) => document.id === initialDocumentId)
+      ? initialDocumentId || ''
+      : visibleDocuments[0]?.id || ''
+  );
   const activeDoc = visibleDocuments.find((d) => d.id === activeDocId) || visibleDocuments[0] || null;
 
   // Word Studio Editor state
@@ -144,6 +154,20 @@ export const SharePointCollaborationHub: React.FC<SharePointCollaborationHubProp
   useEffect(() => {
     setActiveTab(initialTab);
   }, [initialTab]);
+
+  useEffect(() => {
+    if (openCreateInitially) {
+      setShowNewDocModal(true);
+      onClearInitialCreate?.();
+    }
+  }, [openCreateInitially, onClearInitialCreate]);
+
+  useEffect(() => {
+    if (initialDocumentId && visibleDocuments.some((document) => document.id === initialDocumentId)) {
+      setActiveDocId(initialDocumentId);
+      setActiveTab('word_studio');
+    }
+  }, [initialDocumentId, visibleDocuments]);
 
   // Sync Word Studio editor when activeDocId changes
   useEffect(() => {
