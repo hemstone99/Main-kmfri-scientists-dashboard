@@ -53,6 +53,7 @@ interface SharePointCollaborationHubProps {
     subtitle: string;
   } | null;
   onClearSharedAttachment?: () => void;
+  initialTab?: 'drive' | 'word_studio' | 'imagery';
 }
 
 const DEFAULT_LIBRARIES = [
@@ -71,6 +72,7 @@ export const SharePointCollaborationHub: React.FC<SharePointCollaborationHubProp
   onUpdateDb,
   initialSharedAttachment,
   onClearSharedAttachment,
+  initialTab = 'drive',
 }) => {
   const roleName = getUserRoleName(db, currentUser);
   const currentDir = getDirectorateById(db, currentUser.directorate_id);
@@ -78,7 +80,7 @@ export const SharePointCollaborationHub: React.FC<SharePointCollaborationHubProp
   const authorizedProjects = filterProjectsForUser(db, currentUser);
   const visibleUsers = db.users.filter((user) => canViewResearcherProfile(db, currentUser, user));
 
-  const [activeTab, setActiveTab] = useState<'drive' | 'word_studio' | 'imagery'>('drive');
+  const [activeTab, setActiveTab] = useState<'drive' | 'word_studio' | 'imagery'>(initialTab);
   const [selectedLibrary, setSelectedLibrary] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
@@ -138,6 +140,10 @@ export const SharePointCollaborationHub: React.FC<SharePointCollaborationHubProp
   const visibleChatMessages = roleName === 'scientist'
     ? chatMessages.filter((message) => message.sender_id === currentUser.id)
     : chatMessages;
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
 
   // Sync Word Studio editor when activeDocId changes
   useEffect(() => {

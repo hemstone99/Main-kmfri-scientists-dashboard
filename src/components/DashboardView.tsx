@@ -54,6 +54,7 @@ import {
   Layers,
   RotateCcw,
   FileText,
+  Bell,
 } from 'lucide-react';
 
 Chart.register(
@@ -721,6 +722,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     const profileCompletion = Math.round(
       (profileFields.filter((value) => Boolean(value?.trim())).length / profileFields.length) * 100
     );
+    const personalProjectIds = new Set(personalProjects.map((project) => project.id));
+    const upcomingTasks = [
+      ...db.project_milestones
+        .filter((milestone) => personalProjectIds.has(milestone.project_id) && milestone.status !== 'Completed')
+        .map((milestone) => ({ id: milestone.id, title: milestone.title, date: milestone.due_date, type: 'Milestone', section: 'projects' as NavSectionId })),
+      ...personalReports
+        .filter((report) => !['Approved by Head of Directorate', 'Approved by Director General'].includes(report.status))
+        .map((report) => ({ id: report.id, title: report.title, date: report.due_date, type: 'Report due', section: 'reports' as NavSectionId })),
+    ].filter((item) => item.date >= new Date().toISOString().slice(0, 10)).sort((left, right) => left.date.localeCompare(right.date)).slice(0, 4);
+    const personalNotifications = db.notifications
+      .filter((notification) => notification.user_id === currentUser.id)
+      .sort((left, right) => right.created_at.localeCompare(left.created_at))
+      .slice(0, 4);
 
     return (
       <div className="space-y-6">
@@ -736,6 +750,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <button type="button" onClick={onQuickCreateProject} className="inline-flex items-center gap-2 rounded-md bg-teal-400 px-4 py-2.5 text-sm font-semibold text-[#102B3F] hover:bg-teal-300">
                 <Plus className="w-4 h-4" /> New project
               </button>
+              <button type="button" onClick={() => onNavigate('activities')} className="rounded-md border border-white/25 px-4 py-2.5 text-sm font-semibold hover:bg-white/10">Log fieldwork</button>
+              <button type="button" onClick={() => onNavigate('reports')} className="rounded-md border border-white/25 px-4 py-2.5 text-sm font-semibold hover:bg-white/10">Prepare report</button>
               <button type="button" onClick={() => onNavigate('profiles')} className="rounded-md border border-white/25 px-4 py-2.5 text-sm font-semibold hover:bg-white/10">My profile · {profileCompletion}%</button>
             </div>
           </div>
@@ -782,6 +798,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               {personalActivities.slice(0, 5).map((activity) => <div key={activity.id} className="py-3"><div className="font-medium text-sm">{activity.title}</div><div className="mt-1 text-xs text-slate-500">{activity.activity_category} · {activity.activity_date} · {activity.hours}h</div></div>)}
               {personalActivities.length === 0 && <p className="py-6 text-center text-sm text-slate-500">No activity records yet.</p>}
             </div>
+          </div>
+        </section>
+
+        <section className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div><h2 className="font-semibold">Upcoming deadlines</h2><p className="mt-1 text-xs text-slate-500">Your next milestones and report due dates.</p></div>
+              <button type="button" onClick={() => onNavigate('calendar')} className="text-xs font-semibold text-teal-700 dark:text-teal-400">Open calendar</button>
+            </div>
+            {upcomingTasks.length ? <div className="divide-y divide-slate-100 dark:divide-slate-800">{upcomingTasks.map((task) => <button key={`${task.type}-${task.id}`} type="button" onClick={() => onNavigate(task.section)} className="flex w-full items-center justify-between gap-3 py-3 text-left"><span className="min-w-0"><span className="block truncate text-sm font-medium">{task.title}</span><span className="mt-0.5 block text-xs text-slate-500">{task.type}</span></span><time className="shrink-0 font-mono text-xs text-slate-500">{task.date}</time></button>)}</div> : <p className="py-6 text-center text-sm text-slate-500">No upcoming deadlines. Your scheduled work will appear here.</p>}
+          </div>
+          <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2"><Bell className="h-4 w-4 text-teal-700" /><div><h2 className="font-semibold">My notifications</h2><p className="mt-1 text-xs text-slate-500">Assignments, due dates, and review updates.</p></div></div>
+              <button type="button" onClick={() => onNavigate('notifications')} className="text-xs font-semibold text-teal-700 dark:text-teal-400">View all</button>
+            </div>
+            {personalNotifications.length ? <div className="divide-y divide-slate-100 dark:divide-slate-800">{personalNotifications.map((notification) => <div key={notification.id} className="py-3"><div className="flex items-center gap-2"><span className={`h-2 w-2 shrink-0 rounded-full ${notification.read_at ? 'bg-slate-300' : 'bg-teal-500'}`} /><span className="truncate text-sm font-medium">{notification.title}</span></div><p className="mt-1 line-clamp-2 pl-4 text-xs text-slate-500">{notification.message}</p></div>)}</div> : <p className="py-6 text-center text-sm text-slate-500">No notifications yet.</p>}
           </div>
         </section>
       </div>

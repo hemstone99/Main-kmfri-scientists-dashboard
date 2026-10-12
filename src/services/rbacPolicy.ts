@@ -6,6 +6,7 @@ import {
   ResearchOutput,
   ResearchReport,
   DocumentRecord,
+  ResearchLocation,
 } from '../types/kmfri.ts';
 import { getRoleById } from './database.ts';
 
@@ -15,6 +16,9 @@ export type NavSectionId =
   | 'profiles'
   | 'projects'
   | 'activities'
+  | 'calendar'
+  | 'training'
+  | 'research_data'
   | 'funding'
   | 'reports'
   | 'outputs'
@@ -39,27 +43,27 @@ export function canAccessNavSection(state: DatabaseState, user: User, section: N
   const role = getUserRoleName(state, user);
   const accessByRole: Record<RoleName, NavSectionId[]> = {
     scientist: [
-      'dashboard', 'profiles', 'projects', 'activities', 'reports', 'outputs',
-      'sharepoint_hub', 'locations', 'notifications',
+      'dashboard', 'profiles', 'projects', 'activities', 'calendar', 'training',
+      'research_data', 'reports', 'outputs', 'sharepoint_hub', 'locations', 'notifications',
     ],
     head_of_directorate: [
-      'dashboard', 'scientists', 'profiles', 'projects', 'activities', 'funding',
-      'reports', 'outputs', 'sharepoint_hub', 'locations', 'collaborators',
+      'dashboard', 'scientists', 'profiles', 'projects', 'activities', 'calendar',
+      'training', 'research_data', 'funding', 'reports', 'outputs', 'sharepoint_hub', 'locations', 'collaborators',
       'approvals', 'documents', 'notifications', 'analytics',
     ],
     directorate_admin: [
-      'dashboard', 'scientists', 'profiles', 'projects', 'activities', 'funding',
-      'reports', 'outputs', 'sharepoint_hub', 'locations', 'collaborators',
+      'dashboard', 'scientists', 'profiles', 'projects', 'activities', 'calendar',
+      'training', 'research_data', 'funding', 'reports', 'outputs', 'sharepoint_hub', 'locations', 'collaborators',
       'documents', 'notifications', 'analytics', 'administration',
     ],
     director_general: [
-      'dashboard', 'scientists', 'profiles', 'projects', 'activities', 'funding',
-      'reports', 'outputs', 'sharepoint_hub', 'locations', 'collaborators',
+      'dashboard', 'scientists', 'profiles', 'projects', 'activities', 'calendar',
+      'training', 'research_data', 'funding', 'reports', 'outputs', 'sharepoint_hub', 'locations', 'collaborators',
       'approvals', 'documents', 'notifications', 'analytics', 'audit_logs',
     ],
     system_admin: [
-      'dashboard', 'scientists', 'profiles', 'projects', 'activities', 'funding',
-      'reports', 'outputs', 'sharepoint_hub', 'locations', 'collaborators',
+      'dashboard', 'scientists', 'profiles', 'projects', 'activities', 'calendar',
+      'training', 'research_data', 'funding', 'reports', 'outputs', 'sharepoint_hub', 'locations', 'collaborators',
       'approvals', 'documents', 'notifications', 'analytics', 'administration',
       'audit_logs',
     ],
@@ -77,6 +81,12 @@ export function canAccessNavSection(state: DatabaseState, user: User, section: N
 export function canManageLocations(state: DatabaseState, user: User): boolean {
   const role = getUserRoleName(state, user);
   return ['head_of_directorate', 'directorate_admin', 'director_general', 'system_admin'].includes(role);
+}
+
+export function filterLocationsForUser(state: DatabaseState, user: User): ResearchLocation[] {
+  const role = getUserRoleName(state, user);
+  if (role === 'system_admin' || role === 'director_general') return state.locations;
+  return state.locations.filter((location) => location.directorate_id === user.directorate_id);
 }
 
 export function canViewResearcherProfile(

@@ -13,7 +13,7 @@ import {
   SEED_KMFRI_STATIONS,
 } from '../services/database.ts';
 import { addKenyaBordersOverlay } from '../services/kenyaGeoJson.ts';
-import { canManageLocations } from '../services/rbacPolicy.ts';
+import { canManageLocations, filterLocationsForUser } from '../services/rbacPolicy.ts';
 import {
   MapPin,
   CheckCircle2,
@@ -67,6 +67,7 @@ export const GisAndCollaboratorsModules: React.FC<GisAndCollaboratorsModulesProp
   // Scientists may view the atlas but may not add, edit, or delete stations.
   const roleName = getUserRoleName(db, currentUser);
   const canManageLocationsState = canManageLocations(db, currentUser);
+  const visibleLocations = filterLocationsForUser(db, currentUser);
 
   // Location form
   const [locName, setLocName] = useState('');
@@ -95,7 +96,7 @@ export const GisAndCollaboratorsModules: React.FC<GisAndCollaboratorsModulesProp
   const bordersLayerRef = useRef<L.LayerGroup | null>(null);
   const markersRef = useRef<Record<string, L.Marker>>({});
 
-  const filteredLocations = db.locations.filter((loc) => {
+  const filteredLocations = visibleLocations.filter((loc) => {
     if (dirFilter !== 'ALL' && loc.directorate_id !== dirFilter) return false;
     if (ecoFilter !== 'ALL' && loc.ecosystem_type !== ecoFilter) return false;
     return true;

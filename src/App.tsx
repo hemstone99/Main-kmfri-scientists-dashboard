@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import {
   DatabaseState,
   User,
+  RoleName,
 } from './types/kmfri.ts';
 import {
   loadDatabase,
@@ -47,6 +48,7 @@ import { SharePointCollaborationHub } from './components/SharePointCollaboration
 import { GisAndCollaboratorsModules } from './components/GisAndCollaboratorsModules.tsx';
 import { GovernanceAndExportsModules } from './components/GovernanceAndExportsModules.tsx';
 import { AdminAuditAndPhpModules } from './components/AdminAuditAndPhpModules.tsx';
+import { CalendarTasksView, TrainingDevelopmentView } from './components/ScientistWorkspaceViews.tsx';
 import {
   LayoutDashboard,
   Users,
@@ -74,6 +76,10 @@ import {
   Share2,
   Menu,
   X,
+  CalendarDays,
+  GraduationCap,
+  Database,
+  ChevronDown,
 } from 'lucide-react';
 
 interface SidebarNavItem {
@@ -88,6 +94,9 @@ const SIDEBAR_ITEMS: SidebarNavItem[] = [
   { id: 'profiles', label: 'Researcher Profiles', icon: UserCheck },
   { id: 'projects', label: 'Projects', icon: FolderKanban },
   { id: 'activities', label: 'Research Activities', icon: Activity },
+  { id: 'calendar', label: 'Calendar & Tasks', icon: CalendarDays },
+  { id: 'training', label: 'Training & Development', icon: GraduationCap },
+  { id: 'research_data', label: 'Research Data & Documents', icon: Database },
   { id: 'funding', label: 'Funding & Grants', icon: Landmark },
   { id: 'reports', label: 'Reports', icon: FileText },
   { id: 'outputs', label: 'Publications & Outputs', icon: BookOpen },
@@ -102,11 +111,71 @@ const SIDEBAR_ITEMS: SidebarNavItem[] = [
   { id: 'audit_logs', label: 'Audit Logs', icon: ShieldAlert },
 ];
 
+interface SidebarGroupDefinition {
+  label: string;
+  items: { id: NavSectionId; label: string }[];
+}
+
+const SCIENTIST_NAV_GROUPS: SidebarGroupDefinition[] = [
+  { label: 'My Workspace', items: [
+    { id: 'dashboard', label: 'Dashboard' },
+    { id: 'profiles', label: 'My Profile' },
+  ] },
+  { label: 'Research Lifecycle', items: [
+    { id: 'projects', label: 'Research & Projects' },
+    { id: 'activities', label: 'Fieldwork & Sampling' },
+    { id: 'calendar', label: 'Calendar & Tasks' },
+    { id: 'training', label: 'Training & Professional Development' },
+  ] },
+  { label: 'Knowledge & Impact', items: [
+    { id: 'research_data', label: 'Research Data & Documents' },
+    { id: 'reports', label: 'Reports & Deliverables' },
+    { id: 'outputs', label: 'Publications & Research Outputs' },
+    { id: 'locations', label: 'Locations & Maps' },
+    { id: 'sharepoint_hub', label: 'Collaboration & Knowledge Hub' },
+    { id: 'notifications', label: 'Notifications & Approvals' },
+  ] },
+];
+
+const INSTITUTIONAL_NAV_GROUPS: SidebarGroupDefinition[] = [
+  { label: 'Workspace', items: [
+    { id: 'dashboard', label: 'Dashboard' },
+    { id: 'profiles', label: 'Researcher Profiles' },
+    { id: 'scientists', label: 'Scientists & Teams' },
+  ] },
+  { label: 'Research Lifecycle', items: [
+    { id: 'projects', label: 'Research & Projects' },
+    { id: 'activities', label: 'Fieldwork & Sampling' },
+    { id: 'calendar', label: 'Calendar & Tasks' },
+    { id: 'training', label: 'Training & Professional Development' },
+    { id: 'research_data', label: 'Research Data & Documents' },
+    { id: 'reports', label: 'Reports & Deliverables' },
+    { id: 'outputs', label: 'Publications & Research Outputs' },
+  ] },
+  { label: 'Collaboration & Places', items: [
+    { id: 'sharepoint_hub', label: 'Collaboration & Knowledge Hub' },
+    { id: 'locations', label: 'Locations & Maps' },
+    { id: 'collaborators', label: 'Collaborators' },
+  ] },
+  { label: 'Governance & Insights', items: [
+    { id: 'funding', label: 'Funding & Grants' },
+    { id: 'approvals', label: 'Approvals' },
+    { id: 'documents', label: 'Secure Document Repository' },
+    { id: 'notifications', label: 'Notifications' },
+    { id: 'analytics', label: 'Analytics & Exports' },
+    { id: 'audit_logs', label: 'Audit Logs' },
+  ] },
+  { label: 'Administration', items: [
+    { id: 'administration', label: 'Administration' },
+  ] },
+];
+
 export default function App() {
   const [db, setDb] = useState<DatabaseState>(() => loadDatabase());
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeSection, setActiveSection] = useState<NavSectionId>('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [collapsedNavGroups, setCollapsedNavGroups] = useState<Record<string, boolean>>({});
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     try {
@@ -240,9 +309,17 @@ export default function App() {
     (n) => n.user_id === currentUser.id && !n.read_at
   ).length;
 
-  const visibleNavItems = SIDEBAR_ITEMS.filter((item) =>
-    canAccessNavSection(db, currentUser, item.id)
-  );
+  const roleName: RoleName = currentRole?.name || 'scientist';
+  const navGroups = roleName === 'scientist' ? SCIENTIST_NAV_GROUPS : INSTITUTIONAL_NAV_GROUPS;
+  const visibleNavGroups = navGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => canAccessNavSection(db, currentUser, item.id)),
+    }))
+    .filter((group) => group.items.length > 0);
+  const activeNavLabel = visibleNavGroups
+    .flatMap((group) => group.items)
+    .find((item) => item.id === activeSection)?.label || 'Workspace';
 
   const handleSignOut = () => {
     const next = appendAuditLog(
@@ -330,47 +407,60 @@ export default function App() {
             </div>
 
             <nav className="p-2.5 space-y-1 max-h-[calc(100vh-140px)] overflow-y-auto">
-              {visibleNavItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = activeSection === item.id;
-                const itemLabel = item.id === 'profiles' && currentRole?.name === 'scientist'
-                  ? 'My Profile'
-                  : item.label;
+              {visibleNavGroups.map((group) => {
+                const isGroupCollapsed = collapsedNavGroups[group.label] || false;
                 return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => {
-                      setActiveSection(item.id);
-                      setMobileMenuOpen(false);
-                    }}
-                    title={itemLabel}
-                    className={`w-full flex items-center ${
-                      sidebarCollapsed
-                        ? 'justify-between px-3 lg:justify-center lg:px-2'
-                        : 'justify-between px-3'
-                    } py-2.5 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                      isActive
-                        ? 'bg-teal-600 text-white font-semibold shadow-xs'
-                        : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5 truncate">
-                      <Icon className="w-4 h-4 shrink-0" />
-                      <span className={sidebarCollapsed ? 'truncate lg:hidden' : 'truncate'}>
-                        {itemLabel}
-                      </span>
-                    </div>
-                    {item.id === 'notifications' && unreadNotificationsCount > 0 && (
-                      <span
-                        className={`px-1.5 py-0.5 rounded-md bg-teal-500/20 font-mono text-[10px] font-bold text-teal-200 ${
-                          sidebarCollapsed ? 'lg:hidden' : ''
-                        }`}
-                      >
-                        {unreadNotificationsCount}
-                      </span>
-                    )}
-                  </button>
+                  <div key={group.label} className="space-y-1">
+                    <button
+                      type="button"
+                      onClick={() => setCollapsedNavGroups((previous) => ({
+                        ...previous,
+                        [group.label]: !previous[group.label],
+                      }))}
+                      aria-expanded={!isGroupCollapsed}
+                      title={group.label}
+                      className={`w-full flex items-center justify-between px-3 pt-3 pb-1 text-[9px] font-mono font-bold uppercase text-slate-400 hover:text-white ${sidebarCollapsed ? 'lg:hidden' : ''}`}
+                    >
+                      <span>{group.label}</span>
+                      <ChevronDown className={`h-3 w-3 transition-transform ${isGroupCollapsed ? '-rotate-90' : ''}`} />
+                    </button>
+                    {(!isGroupCollapsed || sidebarCollapsed) && group.items.map((entry) => {
+                      const item = SIDEBAR_ITEMS.find((navItem) => navItem.id === entry.id);
+                      if (!item) return null;
+                      const Icon = item.icon;
+                      const isActive = activeSection === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => {
+                            setActiveSection(item.id);
+                            setMobileMenuOpen(false);
+                          }}
+                          title={entry.label}
+                          className={`w-full flex items-center ${
+                            sidebarCollapsed
+                              ? 'justify-between px-3 lg:justify-center lg:px-2'
+                              : 'justify-between px-3'
+                          } py-2.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                            isActive
+                              ? 'bg-teal-600 text-white font-semibold shadow-xs'
+                              : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 truncate">
+                            <Icon className="w-4 h-4 shrink-0" />
+                            <span className={sidebarCollapsed ? 'truncate lg:hidden' : 'truncate'}>{entry.label}</span>
+                          </div>
+                          {item.id === 'notifications' && unreadNotificationsCount > 0 && (
+                            <span className={`px-1.5 py-0.5 rounded-md bg-teal-500/20 font-mono text-[10px] font-bold text-teal-200 ${sidebarCollapsed ? 'lg:hidden' : ''}`}>
+                              {unreadNotificationsCount}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
                 );
               })}
             </nav>
@@ -413,9 +503,7 @@ export default function App() {
               </span>
               <span aria-hidden="true" className="text-slate-300 dark:text-slate-700 hidden md:inline">/</span>
               <span className="font-semibold text-teal-700 dark:text-teal-400 truncate max-w-[140px] sm:max-w-none">
-                {activeSection === 'profiles' && currentRole?.name === 'scientist'
-                  ? 'My Profile'
-                  : SIDEBAR_ITEMS.find((i) => i.id === activeSection)?.label || 'Workspace'}
+                {activeNavLabel}
               </span>
             </div>
 
@@ -499,7 +587,7 @@ export default function App() {
                           u.staff_number.toLowerCase().includes(q)
                       )
                     ) {
-                      setActiveSection('scientists');
+                      setActiveSection(currentRole?.name === 'scientist' ? 'profiles' : 'scientists');
                     } else {
                       setActiveSection('projects');
                     }
@@ -676,7 +764,7 @@ export default function App() {
                                   key={u.id}
                                   type="button"
                                   onClick={() => {
-                                    setActiveSection('scientists');
+                                    setActiveSection(currentRole?.name === 'scientist' ? 'profiles' : 'scientists');
                                     setSearchDropdownOpen(false);
                                   }}
                                   className="w-full text-left p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-between gap-2 cursor-pointer"
@@ -745,6 +833,24 @@ export default function App() {
                   />
                 )}
 
+                {(activeSection === 'calendar' || activeSection === 'training') && (
+                  activeSection === 'calendar' ? (
+                    <CalendarTasksView
+                      db={db}
+                      currentUser={currentUser}
+                      onUpdateDb={handleUpdateDb}
+                      onNavigate={setActiveSection}
+                    />
+                  ) : (
+                    <TrainingDevelopmentView
+                      db={db}
+                      currentUser={currentUser}
+                      onUpdateDb={handleUpdateDb}
+                      onNavigate={setActiveSection}
+                    />
+                  )
+                )}
+
                 {(activeSection === 'activities' || activeSection === 'funding') && (
                   <OperationsAndFundingModules
                     db={db}
@@ -766,13 +872,14 @@ export default function App() {
                   />
                 )}
 
-                {activeSection === 'sharepoint_hub' && (
+                {(activeSection === 'sharepoint_hub' || activeSection === 'research_data') && (
                   <SharePointCollaborationHub
                     db={db}
                     currentUser={currentUser}
                     onUpdateDb={handleUpdateDb}
                     initialSharedAttachment={pendingChatShare}
                     onClearSharedAttachment={() => setPendingChatShare(null)}
+                    initialTab={activeSection === 'research_data' ? 'drive' : 'word_studio'}
                   />
                 )}
 
@@ -815,13 +922,8 @@ export default function App() {
             aria-label="Mobile quick navigation"
             className="fixed bottom-0 left-0 right-0 z-30 lg:hidden bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 px-2 py-1.5 grid grid-cols-5 gap-1"
           >
-            {[
-              { id: 'dashboard' as NavSectionId, label: 'Dashboard', icon: LayoutDashboard },
-              { id: 'projects' as NavSectionId, label: 'Projects', icon: FolderKanban },
-              { id: 'outputs' as NavSectionId, label: 'Publications', icon: BookOpen },
-              { id: 'sharepoint_hub' as NavSectionId, label: 'SharePoint', icon: Share2 },
-            ].map((tab) => {
-              const Icon = tab.icon;
+            {visibleNavGroups.flatMap((group) => group.items).slice(0, 4).map((tab) => {
+              const Icon = SIDEBAR_ITEMS.find((item) => item.id === tab.id)?.icon || LayoutDashboard;
               const isActive = activeSection === tab.id;
               return (
                 <button

@@ -13,7 +13,11 @@ import {
   getUserById,
   appendAuditLog,
 } from '../services/database.ts';
-import { filterProjectsForUser, getUserRoleName } from '../services/rbacPolicy.ts';
+import {
+  filterLocationsForUser,
+  filterProjectsForUser,
+  getUserRoleName,
+} from '../services/rbacPolicy.ts';
 import {
   Plus,
   Activity,
@@ -21,6 +25,8 @@ import {
   ArrowDownRight,
   AlertCircle,
   CheckCircle2,
+  Crosshair,
+  Camera,
 } from 'lucide-react';
 
 interface OperationsAndFundingModulesProps {
@@ -38,6 +44,7 @@ export const OperationsAndFundingModules: React.FC<OperationsAndFundingModulesPr
 }) => {
   const roleName = getUserRoleName(db, currentUser);
   const authorizedProjects = filterProjectsForUser(db, currentUser);
+  const visibleLocations = filterLocationsForUser(db, currentUser);
   const activityProjects = roleName === 'scientist'
     ? authorizedProjects.filter((project) =>
         project.principal_investigator_id === currentUser.id ||
@@ -60,6 +67,14 @@ export const OperationsAndFundingModules: React.FC<OperationsAndFundingModulesPr
   const [actHours, setActHours] = useState('');
   const [actStatus, setActStatus] = useState<ResearchActivity['status']>('Completed');
   const [actDesc, setActDesc] = useState('');
+  const [actLocationId, setActLocationId] = useState(visibleLocations[0]?.id || '');
+  const initialStation = visibleLocations.find((location) => location.id === actLocationId);
+  const [gpsLatitude, setGpsLatitude] = useState(initialStation ? String(initialStation.latitude) : '');
+  const [gpsLongitude, setGpsLongitude] = useState(initialStation ? String(initialStation.longitude) : '');
+  const [specimenReference, setSpecimenReference] = useState('');
+  const [environmentalObservations, setEnvironmentalObservations] = useState('');
+  const [fieldPhotoDataUrl, setFieldPhotoDataUrl] = useState('');
+  const [fieldPhotoName, setFieldPhotoName] = useState('');
 
   // Funding form state (clean empty inputs — zero dummy data)
   const [funderName, setFunderName] = useState('');
@@ -98,7 +113,13 @@ export const OperationsAndFundingModules: React.FC<OperationsAndFundingModulesPr
       activity_category: actCategory,
       description: actDesc.trim() || actTitle.trim(),
       activity_date: actDate,
-      location_id: db.locations[0]?.id || null,
+      location_id: actLocationId || null,
+      specimen_reference: specimenReference.trim() || undefined,
+      environmental_observations: environmentalObservations.trim() || undefined,
+      gps_latitude: gpsLatitude ? Number(gpsLatitude) : null,
+      gps_longitude: gpsLongitude ? Number(gpsLongitude) : null,
+      field_photo_data_url: fieldPhotoDataUrl || undefined,
+      field_photo_name: fieldPhotoName || undefined,
       status: actStatus,
       hours: Math.max(0.5, Number(actHours) || 1),
       created_at: new Date().toISOString(),
@@ -116,13 +137,55 @@ export const OperationsAndFundingModules: React.FC<OperationsAndFundingModulesPr
       'research_activities',
       activity.id,
       null,
-      { title: activity.title, project_code: proj.project_code, hours: activity.hours }
+      {
+        title: activity.title,
+        project_code: proj.project_code,
+        hours: activity.hours,
+        location_id: activity.location_id,
+        specimen_reference: activity.specimen_reference,
+      }
     );
 
     onUpdateDb(nextState);
     setActTitle('');
     setActDesc('');
+    setSpecimenReference('');
+    setEnvironmentalObservations('');
+    setFieldPhotoDataUrl('');
+    setFieldPhotoName('');
     setAlertMsg({ type: 'ok', text: `Research activity "${activity.title}" recorded.` });
+  };
+
+  const captureCurrentGps = () => {
+    if (!navigator.geolocation) {
+      setAlertMsg({ type: 'err', text: 'GPS is not available in this browser. Select a sampling station or enter coordinates.' });
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setGpsLatitude(position.coords.latitude.toFixed(6));
+        setGpsLongitude(position.coords.longitude.toFixed(6));
+        setAlertMsg({ type: 'ok', text: 'Current GPS coordinates captured.' });
+      },
+      () => setAlertMsg({ type: 'err', text: 'Location permission was denied or GPS could not be determined.' }),
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  const handleFieldPhoto = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/') || file.size > 1024 * 1024) {
+      setAlertMsg({ type: 'err', text: 'Choose an image no larger than 1 MB for offline field capture.' });
+      event.target.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setFieldPhotoDataUrl(String(reader.result || ''));
+      setFieldPhotoName(file.name);
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleCreateGrant = (e: React.FormEvent) => {
@@ -348,6 +411,35 @@ export const OperationsAndFundingModules: React.FC<OperationsAndFundingModulesPr
                   )}
                 </select>
               </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="block font-semibold mb-1">Sampling station</span>
+                  <select
+                    value={actLocationId}
+                    onChange={(event) => {
+                      const station = visibleLocations.find((location) => location.id === event.target.value);
+                      setActLocationId(event.target.value);
+                      if (station) {
+                        setGpsLatitude(String(station.latitude));
+                        setGpsLongitude(String(station.longitude));
+                      }
+                    }}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 dark:bg-slate-800"
+                  >
+                    <option value="">Unspecified station</option>
+                    {visibleLocations.map((location) => <option key={location.id} value={location.id}>{location.name} · {location.county}</option>)}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="block font-semibold mb-1">Specimen / sample reference</span>
+                  <input value={specimenReference} onChange={(event) => setSpecimenReference(event.target.value)} placeholder="e.g. KMFRI-OCS-2026-001" className="w-full rounded-lg border border-slate-300 px-3 py-2" />
+                </label>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-3 items-end">
+                <label className="block"><span className="block font-semibold mb-1">Latitude</span><input type="number" step="any" value={gpsLatitude} onChange={(event) => setGpsLatitude(event.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono" /></label>
+                <label className="block"><span className="block font-semibold mb-1">Longitude</span><input type="number" step="any" value={gpsLongitude} onChange={(event) => setGpsLongitude(event.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono" /></label>
+                <button type="button" onClick={captureCurrentGps} title="Capture current GPS coordinates" className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold hover:bg-slate-100"><Crosshair className="h-4 w-4" /> Capture GPS</button>
+              </div>
               <div>
                 <label className="block font-semibold mb-1">Activity Title</label>
                 <input
@@ -375,6 +467,8 @@ export const OperationsAndFundingModules: React.FC<OperationsAndFundingModulesPr
                     <option value="Sample Collection">Sample Collection</option>
                     <option value="Data Analysis">Data Analysis</option>
                     <option value="Stakeholder Meeting">Stakeholder Meeting</option>
+                    <option value="Training / Workshop">Training / Workshop</option>
+                    <option value="Conference">Conference</option>
                   </select>
                 </div>
                 <div>
@@ -412,7 +506,7 @@ export const OperationsAndFundingModules: React.FC<OperationsAndFundingModulesPr
                 </div>
               </div>
               <div>
-                <label className="block font-semibold mb-1">Scientific Observations & Notes</label>
+                <label className="block font-semibold mb-1">Activity notes</label>
                 <textarea
                   rows={2}
                   value={actDesc}
@@ -420,6 +514,15 @@ export const OperationsAndFundingModules: React.FC<OperationsAndFundingModulesPr
                   className="w-full px-3 py-2 rounded-lg border border-slate-300"
                 />
               </div>
+              <div>
+                <label className="block font-semibold mb-1">Environmental observations</label>
+                <textarea rows={2} value={environmentalObservations} onChange={(event) => setEnvironmentalObservations(event.target.value)} placeholder="Weather, habitat, water conditions, or sampling context" className="w-full rounded-lg border border-slate-300 px-3 py-2" />
+              </div>
+              <label className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-2.5 text-xs text-slate-600 dark:text-slate-300">
+                <Camera className="h-4 w-4 shrink-0 text-teal-700" />
+                <span className="min-w-0 flex-1 truncate">{fieldPhotoName || 'Attach field photo (up to 1 MB, available offline)'}</span>
+                <input type="file" accept="image/*" onChange={handleFieldPhoto} className="max-w-40 text-[10px]" />
+              </label>
               <button
                 type="submit"
                 className="w-full py-2 px-4 bg-[#0A2540] text-white font-semibold rounded-lg cursor-pointer"
@@ -463,6 +566,14 @@ export const OperationsAndFundingModules: React.FC<OperationsAndFundingModulesPr
                               {a.title}
                             </div>
                             <div className="text-[11px] text-slate-500">{a.activity_category}</div>
+                            {(a.specimen_reference || a.gps_latitude != null || a.location_id) && (
+                              <div className="mt-1 text-[10px] text-slate-500">
+                                {a.specimen_reference && <span>Sample {a.specimen_reference}</span>}
+                                {a.location_id && <span>{a.specimen_reference ? ' · ' : ''}{visibleLocations.find((location) => location.id === a.location_id)?.name || 'Sampling station'}</span>}
+                                {a.gps_latitude != null && a.gps_longitude != null && <span> · {a.gps_latitude.toFixed(5)}, {a.gps_longitude.toFixed(5)}</span>}
+                              </div>
+                            )}
+                            {a.field_photo_data_url && <a href={a.field_photo_data_url} download={a.field_photo_name || 'field-photo'} className="mt-1 inline-flex text-[10px] font-semibold text-teal-700 underline">View field photo</a>}
                           </td>
                           <td className="py-2.5 px-4">{sci?.full_name}</td>
                           <td className="py-2.5 px-4 text-right font-mono">{a.hours}h</td>

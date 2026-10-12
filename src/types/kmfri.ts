@@ -382,6 +382,12 @@ export interface ResearchActivity {
   description: string;
   activity_date: string;
   location_id: string | null;
+  specimen_reference?: string;
+  environmental_observations?: string;
+  gps_latitude?: number | null;
+  gps_longitude?: number | null;
+  field_photo_data_url?: string;
+  field_photo_name?: string;
   status: 'Planned' | 'In Progress' | 'Completed' | 'Delayed';
   hours: number;
   created_at: string;
