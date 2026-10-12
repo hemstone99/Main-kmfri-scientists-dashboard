@@ -530,6 +530,10 @@ export function createInitialCleanDatabase(): DatabaseState {
     funding: [],
     funding_transactions: [],
     locations: [...SEED_KMFRI_STATIONS],
+    field_missions: [],
+    field_observations: [],
+    research_specimens: [],
+    specimen_transfers: [],
     project_locations: [],
     collaborators: [],
     project_collaborators: [],
@@ -576,6 +580,10 @@ export function loadDatabase(): DatabaseState {
       return initial;
     }
     const parsed = JSON.parse(raw) as DatabaseState;
+    parsed.field_missions ||= [];
+    parsed.field_observations ||= [];
+    parsed.research_specimens ||= [];
+    parsed.specimen_transfers ||= [];
     if (!parsed.directorates || parsed.directorates.length < 4) {
       parsed.directorates = [...SEED_DIRECTORATES];
     }

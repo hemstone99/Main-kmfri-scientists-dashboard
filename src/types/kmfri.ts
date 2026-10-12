@@ -259,6 +259,131 @@ export interface ResearchLocation {
   description: string;
   environmental_context: string;
   directorate_id: string;
+  project_id?: string | null;
+  station_code?: string;
+  research_program?: string;
+  responsible_user_id?: string | null;
+  operational_status?: 'Active' | 'Monitoring' | 'Seasonal' | 'Inactive' | 'Archived';
+  approval_status?: 'Pending Approval' | 'Approved' | 'Rejected';
+  submitted_by?: string;
+  approved_by?: string | null;
+  approved_at?: string | null;
+  photo_data_url?: string;
+  boundary_coordinates?: { latitude: number; longitude: number }[];
+  created_by?: string;
+  updated_at?: string;
+  archived_at?: string | null;
+  created_at: string;
+}
+
+export interface FieldCoordinate {
+  latitude: number;
+  longitude: number;
+  accuracy_m?: number | null;
+  elevation_m?: number | null;
+  captured_at?: string;
+}
+
+export type FieldSyncStatus = 'Local Only' | 'Pending Sync' | 'Synced' | 'Failed' | 'Conflict';
+
+export type FieldMissionStatus =
+  | 'Draft'
+  | 'Pending Approval'
+  | 'Approved'
+  | 'In Progress'
+  | 'Completed'
+  | 'Cancelled';
+
+export interface FieldMission {
+  id: string;
+  mission_code: string;
+  title: string;
+  objectives: string;
+  project_id: string;
+  directorate_id: string;
+  requested_by: string;
+  mission_lead_id: string;
+  team_member_ids: string[];
+  station_ids: string[];
+  start_at: string;
+  end_at: string;
+  status: FieldMissionStatus;
+  route_coordinates: FieldCoordinate[];
+  equipment_notes: string;
+  transport_requirements: string;
+  safety_notes: string;
+  checklist: { id: string; label: string; complete: boolean }[];
+  progress: number;
+  approved_by: string | null;
+  approved_at: string | null;
+  completion_notes: string;
+  created_at: string;
+  updated_at: string;
+  sync_status: FieldSyncStatus;
+}
+
+export interface EnvironmentalObservation {
+  id: string;
+  project_id: string;
+  mission_id: string | null;
+  station_id: string | null;
+  directorate_id: string;
+  observer_id: string;
+  observed_at: string;
+  coordinate: FieldCoordinate;
+  observation_type: string;
+  sampling_method: string;
+  measurements: Record<string, number | string>;
+  measurement_units: Record<string, string>;
+  habitat_condition: string;
+  weather_conditions: string;
+  notes: string;
+  photo_data_urls: { name: string; data_url: string }[];
+  quality_flags: string[];
+  quality_status: 'Unreviewed' | 'Passed' | 'Flagged' | 'Corrected';
+  correction_history: { corrected_by: string; corrected_at: string; reason: string; previous_values: string }[];
+  created_at: string;
+  updated_at: string;
+  sync_status: FieldSyncStatus;
+}
+
+export interface ResearchSpecimen {
+  id: string;
+  sample_code: string;
+  qr_payload: string;
+  project_id: string;
+  mission_id: string | null;
+  station_id: string | null;
+  observation_id: string | null;
+  directorate_id: string;
+  collected_by: string;
+  specimen_type: string;
+  species_name: string;
+  identification_status: 'Unidentified' | 'Provisional' | 'Confirmed';
+  coordinate: FieldCoordinate;
+  collected_at: string;
+  preservation_method: string;
+  storage_location: string;
+  status: 'Collected' | 'In Transit' | 'Received by Lab' | 'Processing' | 'Analyzed' | 'Archived' | 'Disposed';
+  disposition_notes: string;
+  photo_data_url: string;
+  created_at: string;
+  updated_at: string;
+  sync_status: FieldSyncStatus;
+}
+
+export interface SpecimenTransfer {
+  id: string;
+  specimen_id: string;
+  from_location: string;
+  to_location: string;
+  transferred_by: string;
+  received_by: string | null;
+  transferred_at: string;
+  received_at: string | null;
+  purpose: string;
+  status: 'Awaiting Receipt' | 'Received' | 'Disputed';
+  notes: string;
   created_at: string;
 }
 
@@ -501,6 +626,10 @@ export interface DatabaseState {
   funding: FundingRecord[];
   funding_transactions: FundingTransaction[];
   locations: ResearchLocation[];
+  field_missions: FieldMission[];
+  field_observations: EnvironmentalObservation[];
+  research_specimens: ResearchSpecimen[];
+  specimen_transfers: SpecimenTransfer[];
   project_locations: ProjectLocationLink[];
   collaborators: Collaborator[];
   project_collaborators: ProjectCollaboratorLink[];

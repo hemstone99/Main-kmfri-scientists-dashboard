@@ -7,6 +7,9 @@ import {
   ResearchReport,
   DocumentRecord,
   ResearchLocation,
+  FieldMission,
+  EnvironmentalObservation,
+  ResearchSpecimen,
 } from '../types/kmfri.ts';
 import { getRoleById } from './database.ts';
 
@@ -19,6 +22,8 @@ export type NavSectionId =
   | 'calendar'
   | 'training'
   | 'research_data'
+  | 'field_research'
+  | 'advanced_gis'
   | 'funding'
   | 'reports'
   | 'outputs'
@@ -44,27 +49,27 @@ export function canAccessNavSection(state: DatabaseState, user: User, section: N
   const accessByRole: Record<RoleName, NavSectionId[]> = {
     scientist: [
       'dashboard', 'profiles', 'projects', 'activities', 'calendar', 'training',
-      'research_data', 'reports', 'outputs', 'sharepoint_hub', 'locations', 'notifications',
+      'research_data', 'field_research', 'advanced_gis', 'reports', 'outputs', 'sharepoint_hub', 'locations', 'notifications',
     ],
     head_of_directorate: [
       'dashboard', 'scientists', 'profiles', 'projects', 'activities', 'calendar',
       'training', 'research_data', 'funding', 'reports', 'outputs', 'sharepoint_hub', 'locations', 'collaborators',
-      'approvals', 'documents', 'notifications', 'analytics',
+      'field_research', 'advanced_gis', 'approvals', 'documents', 'notifications', 'analytics',
     ],
     directorate_admin: [
       'dashboard', 'scientists', 'profiles', 'projects', 'activities', 'calendar',
       'training', 'research_data', 'funding', 'reports', 'outputs', 'sharepoint_hub', 'locations', 'collaborators',
-      'documents', 'notifications', 'analytics', 'administration',
+      'field_research', 'advanced_gis', 'documents', 'notifications', 'analytics', 'administration',
     ],
     director_general: [
       'dashboard', 'scientists', 'profiles', 'projects', 'activities', 'calendar',
       'training', 'research_data', 'funding', 'reports', 'outputs', 'sharepoint_hub', 'locations', 'collaborators',
-      'approvals', 'documents', 'notifications', 'analytics', 'audit_logs',
+      'field_research', 'advanced_gis', 'approvals', 'documents', 'notifications', 'analytics', 'audit_logs',
     ],
     system_admin: [
       'dashboard', 'scientists', 'profiles', 'projects', 'activities', 'calendar',
       'training', 'research_data', 'funding', 'reports', 'outputs', 'sharepoint_hub', 'locations', 'collaborators',
-      'approvals', 'documents', 'notifications', 'analytics', 'administration',
+      'field_research', 'advanced_gis', 'approvals', 'documents', 'notifications', 'analytics', 'administration',
       'audit_logs',
     ],
   };
@@ -85,8 +90,102 @@ export function canManageLocations(state: DatabaseState, user: User): boolean {
 
 export function filterLocationsForUser(state: DatabaseState, user: User): ResearchLocation[] {
   const role = getUserRoleName(state, user);
-  if (role === 'system_admin' || role === 'director_general') return state.locations;
-  return state.locations.filter((location) => location.directorate_id === user.directorate_id);
+  const scopedLocations = role === 'system_admin' || role === 'director_general'
+    ? state.locations
+    : state.locations.filter((location) => location.directorate_id === user.directorate_id);
+  return scopedLocations.filter((location) =>
+    location.approval_status !== 'Pending Approval' ||
+    location.submitted_by === user.id ||
+    canReviewFieldStation(state, user, location)
+  );
+}
+
+export function canReviewFieldStation(
+  state: DatabaseState,
+  user: User,
+  station: ResearchLocation
+): boolean {
+  const role = getUserRoleName(state, user);
+  return (role === 'system_admin' || role === 'head_of_directorate') &&
+    (role === 'system_admin' || user.directorate_id === station.directorate_id) &&
+    station.submitted_by !== user.id && station.approval_status === 'Pending Approval';
+}
+
+function isAssignedToProject(state: DatabaseState, user: User, projectId: string): boolean {
+  const project = state.projects.find((item) => item.id === projectId);
+  return Boolean(project && (
+    project.principal_investigator_id === user.id ||
+    project.created_by === user.id ||
+    state.project_members.some((member) => member.project_id === projectId && member.user_id === user.id)
+  ));
+}
+
+export function canManageFieldStation(
+  state: DatabaseState,
+  user: User,
+  directorateId: string,
+  projectId?: string | null
+): boolean {
+  const role = getUserRoleName(state, user);
+  if (role === 'system_admin' || role === 'director_general') return true;
+  if (role === 'head_of_directorate' || role === 'directorate_admin') {
+    return user.directorate_id === directorateId;
+  }
+  return role === 'scientist' && user.directorate_id === directorateId && Boolean(projectId && isAssignedToProject(state, user, projectId));
+}
+
+export function canViewFieldMission(state: DatabaseState, user: User, mission: FieldMission): boolean {
+  const role = getUserRoleName(state, user);
+  if (role === 'system_admin' || role === 'director_general') return true;
+  if (role === 'head_of_directorate' || role === 'directorate_admin') return user.directorate_id === mission.directorate_id;
+  return mission.requested_by === user.id || mission.mission_lead_id === user.id ||
+    mission.team_member_ids.includes(user.id) || isAssignedToProject(state, user, mission.project_id);
+}
+
+export function canManageFieldMission(state: DatabaseState, user: User, mission: FieldMission): boolean {
+  const role = getUserRoleName(state, user);
+  if (role === 'system_admin') return true;
+  if (role === 'head_of_directorate' || role === 'directorate_admin') {
+    return user.directorate_id === mission.directorate_id;
+  }
+  return role === 'scientist' && mission.requested_by === user.id && ['Draft', 'Pending Approval', 'Approved', 'In Progress'].includes(mission.status);
+}
+
+export function canReviewFieldMission(state: DatabaseState, user: User, mission: FieldMission): boolean {
+  const role = getUserRoleName(state, user);
+  return (role === 'system_admin' || role === 'head_of_directorate') &&
+    (role === 'system_admin' || user.directorate_id === mission.directorate_id) &&
+    mission.requested_by !== user.id && mission.status === 'Pending Approval';
+}
+
+export function filterFieldMissionsForUser(state: DatabaseState, user: User): FieldMission[] {
+  return state.field_missions.filter((mission) => canViewFieldMission(state, user, mission));
+}
+
+export function canViewFieldObservation(
+  state: DatabaseState,
+  user: User,
+  observation: EnvironmentalObservation
+): boolean {
+  const role = getUserRoleName(state, user);
+  if (role === 'system_admin' || role === 'director_general') return true;
+  if (role === 'head_of_directorate' || role === 'directorate_admin') return user.directorate_id === observation.directorate_id;
+  return observation.observer_id === user.id || isAssignedToProject(state, user, observation.project_id);
+}
+
+export function filterFieldObservationsForUser(state: DatabaseState, user: User): EnvironmentalObservation[] {
+  return state.field_observations.filter((observation) => canViewFieldObservation(state, user, observation));
+}
+
+export function canViewResearchSpecimen(state: DatabaseState, user: User, specimen: ResearchSpecimen): boolean {
+  const role = getUserRoleName(state, user);
+  if (role === 'system_admin' || role === 'director_general') return true;
+  if (role === 'head_of_directorate' || role === 'directorate_admin') return user.directorate_id === specimen.directorate_id;
+  return specimen.collected_by === user.id || isAssignedToProject(state, user, specimen.project_id);
+}
+
+export function filterResearchSpecimensForUser(state: DatabaseState, user: User): ResearchSpecimen[] {
+  return state.research_specimens.filter((specimen) => canViewResearchSpecimen(state, user, specimen));
 }
 
 export function canViewResearcherProfile(

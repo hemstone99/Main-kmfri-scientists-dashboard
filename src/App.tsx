@@ -46,6 +46,7 @@ import { OperationsAndFundingModules } from './components/OperationsAndFundingMo
 import { OutputsAndReportsModules } from './components/OutputsAndReportsModules.tsx';
 import { SharePointCollaborationHub } from './components/SharePointCollaborationHub.tsx';
 import { GisAndCollaboratorsModules } from './components/GisAndCollaboratorsModules.tsx';
+import { AdvancedFieldResearchModule } from './components/AdvancedFieldResearchModule.tsx';
 import { GovernanceAndExportsModules } from './components/GovernanceAndExportsModules.tsx';
 import { AdminAuditAndPhpModules } from './components/AdminAuditAndPhpModules.tsx';
 import { CalendarTasksView, TrainingDevelopmentView } from './components/ScientistWorkspaceViews.tsx';
@@ -81,6 +82,7 @@ import {
   GraduationCap,
   Database,
   ChevronDown,
+  Compass,
 } from 'lucide-react';
 
 interface SidebarNavItem {
@@ -98,6 +100,7 @@ const SIDEBAR_ITEMS: SidebarNavItem[] = [
   { id: 'calendar', label: 'Calendar & Tasks', icon: CalendarDays },
   { id: 'training', label: 'Training & Development', icon: GraduationCap },
   { id: 'research_data', label: 'Research Data & Documents', icon: Database },
+  { id: 'advanced_gis', label: 'GIS & Field Research', icon: Compass },
   { id: 'funding', label: 'Funding & Grants', icon: Landmark },
   { id: 'reports', label: 'Reports', icon: FileText },
   { id: 'outputs', label: 'Publications & Outputs', icon: BookOpen },
@@ -133,6 +136,7 @@ const SCIENTIST_NAV_GROUPS: SidebarGroupDefinition[] = [
     { id: 'reports', label: 'Reports & Deliverables' },
     { id: 'outputs', label: 'Publications & Research Outputs' },
     { id: 'locations', label: 'Locations & Maps' },
+    { id: 'advanced_gis', label: 'GIS & Field Research' },
     { id: 'sharepoint_hub', label: 'Collaboration & Knowledge Hub' },
     { id: 'notifications', label: 'Notifications & Approvals' },
   ] },
@@ -156,6 +160,7 @@ const INSTITUTIONAL_NAV_GROUPS: SidebarGroupDefinition[] = [
   { label: 'Collaboration & Places', items: [
     { id: 'sharepoint_hub', label: 'Collaboration & Knowledge Hub' },
     { id: 'locations', label: 'Locations & Maps' },
+    { id: 'advanced_gis', label: 'GIS & Field Research' },
     { id: 'collaborators', label: 'Collaborators' },
   ] },
   { label: 'Governance & Insights', items: [
@@ -170,6 +175,16 @@ const INSTITUTIONAL_NAV_GROUPS: SidebarGroupDefinition[] = [
     { id: 'administration', label: 'Administration' },
   ] },
 ];
+
+function normalizeResearchState(state: DatabaseState): DatabaseState {
+  return {
+    ...state,
+    field_missions: Array.isArray(state.field_missions) ? state.field_missions : [],
+    field_observations: Array.isArray(state.field_observations) ? state.field_observations : [],
+    research_specimens: Array.isArray(state.research_specimens) ? state.research_specimens : [],
+    specimen_transfers: Array.isArray(state.specimen_transfers) ? state.specimen_transfers : [],
+  };
+}
 
 export default function App() {
   const [db, setDb] = useState<DatabaseState>(() => loadDatabase());
@@ -224,17 +239,18 @@ export default function App() {
     fetchDatabaseFromSupabase().then(async (remoteState) => {
       if (!active) return;
       if (remoteState && Array.isArray(remoteState.directorates)) {
-        setDb(remoteState);
-        primeServiceWorkerCache(remoteState);
+        const hydratedState = normalizeResearchState(remoteState);
+        setDb(hydratedState);
+        primeServiceWorkerCache(hydratedState);
         try {
-          localStorage.setItem('kmfri_rms_production_db_v4_stations', JSON.stringify(remoteState));
+          localStorage.setItem('kmfri_rms_production_db_v4_stations', JSON.stringify(hydratedState));
         } catch {
           // ignore localStorage write errors
         }
       } else {
         const swCachedState = await readStateFromServiceWorkerCache();
         if (active && swCachedState && Array.isArray(swCachedState.directorates)) {
-          setDb(swCachedState);
+          setDb(normalizeResearchState(swCachedState));
         } else {
           // Seed initial state to Supabase if empty
           void syncDatabaseToSupabase(localInitial);
@@ -831,6 +847,14 @@ export default function App() {
                     onUpdateDb={handleUpdateDb}
                     openCreateModalInitially={triggerNewProjectModal}
                     onClearInitialModal={() => setTriggerNewProjectModal(false)}
+                  />
+                )}
+
+                {activeSection === 'advanced_gis' && (
+                  <AdvancedFieldResearchModule
+                    db={db}
+                    currentUser={currentUser}
+                    onUpdateDb={handleUpdateDb}
                   />
                 )}
 
